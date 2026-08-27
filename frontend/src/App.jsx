@@ -6,6 +6,9 @@ import Home from './pages/Home';
 import IoTSimulator from './pages/IoTSimulator';
 import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
+import Payment from './pages/Payment';
 import './index.css';
 
 export default function App() {
@@ -16,7 +19,10 @@ export default function App() {
           <Route path="/" element={<Start />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/signin" element={<SignIn />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+          <Route path="/payment" element={<ProtectedRoute><Payment /></ProtectedRoute>} />
           <Route path="/admin/iot-simulator" element={<ProtectedRoute><IoTSimulator /></ProtectedRoute>} />
         </Routes>
       </BrowserRouter>

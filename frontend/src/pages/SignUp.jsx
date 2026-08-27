@@ -1,67 +1,75 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import api from '../services/api';
+import { Link, useNavigate } from 'react-router-dom';
+import InputField from '../components/InputField';
+import { authService } from '../services/authService';
 
-const Signup = () => {
-  const [formData, setFormData] = useState({ name: '', email: '', password: '', otp: '' });
+const initialForm = { name: '', email: '', password: '', otp: '' };
+
+export default function SignUp() {
+  const [formData, setFormData] = useState(initialForm);
+  const [errors, setErrors] = useState({});
   const [otpSent, setOtpSent] = useState(false);
   const [testOtp, setTestOtp] = useState('');
-  const [error, setError] = useState('');
+  const [status, setStatus] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
   const navigate = useNavigate();
 
-  const handleSendOtp = async (e) => {
-    e.preventDefault();
-    try {
-      const response = await api.post('/auth/signup', {
-        name: formData.name,
-        email: formData.email,
-        password: formData.password
-      });
-      setOtpSent(true);
-      setTestOtp(response.data.testOtp || '');
-      setError('');
-      alert('OTP Sent! Check your email.');
-    } catch (err) {
-      setError(err.response?.data?.message || 'Unable to send OTP. Please try again.');
-    }
+  const update = (event) => {
+    const { name, value } = event.target;
+    setFormData((current) => ({ ...current, [name]: value }));
+    setErrors((current) => ({ ...current, [name]: '' }));
+    setStatus('');
   };
 
-  const handleVerify = async (e) => {
-    e.preventDefault();
+  const validate = () => {
+    const next = {};
+    if (!formData.name.trim()) next.name = 'This field is required.';
+    else if (formData.name.trim().length < 2) next.name = 'Please enter at least 2 characters.';
+    if (!formData.email) next.email = 'This field is required.';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) next.email = 'Please enter a valid email address.';
+    if (!formData.password) next.password = 'This field is required.';
+    else if (formData.password.length < 8) next.password = 'Password must contain at least 8 characters.';
+    else if (!/\d/.test(formData.password)) next.password = 'Password must contain at least one number.';
+    if (otpSent && !/^\d{6}$/.test(formData.otp)) next.otp = 'Enter the 6-digit verification code.';
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (!validate()) return;
+    setIsProcessing(true);
     try {
-      await api.post('/auth/verify-otp', formData);
-      alert('Account created! Please Sign In.');
-      navigate('/signin');
-    } catch (err) {
-      setError(err.response?.data?.message || 'Invalid OTP');
-    }
+      if (!otpSent) {
+        const response = await authService.signup({ name: formData.name.trim(), email: formData.email, password: formData.password });
+        setOtpSent(true);
+        setTestOtp(response.testOtp || '');
+        setStatus('Verification code sent. Check your email to continue.');
+      } else {
+        await authService.verifyOtp(formData);
+        navigate('/signin', { state: { message: 'Account created. You can now sign in.' } });
+      }
+    } catch (error) {
+      setStatus(error.response?.data?.message || 'We could not complete that request. Please try again.');
+    } finally { setIsProcessing(false); }
   };
 
   return (
-    <div className="auth-container">
-      <div className="auth-card">
-        <h2>Join VeloSync</h2>
-        {error && <div className="error-msg">{error}</div>}
-        <form onSubmit={otpSent ? handleVerify : handleSendOtp}>
-          <input type="text" placeholder="Full Name" disabled={otpSent} required onChange={e => setFormData({...formData, name: e.target.value})} />
-          <input type="email" placeholder="Email" disabled={otpSent} required onChange={e => setFormData({...formData, email: e.target.value})} />
-          <input type="password" placeholder="Password" disabled={otpSent} required onChange={e => setFormData({...formData, password: e.target.value})} />
-          
-          {otpSent && (
-            <input type="text" maxLength="6" placeholder="Enter 6-Digit OTP" required onChange={e => setFormData({...formData, otp: e.target.value})} />
-          )}
-          
-          <button type="submit" className="btn-primary">{otpSent ? 'Verify & Register' : 'Generate OTP'}</button>
+    <div className="auth-shell">
+      <section className="auth-aside"><span className="eyebrow">VeloSync / membership</span><h1>Move through the city with less friction.</h1><p>One account for cleaner commutes, smart stations, and rides that fit your day.</p><div className="aside-stat"><strong>24/7</strong><span>connected mobility</span></div></section>
+      <main className="auth-card auth-form-card">
+        <div className="auth-heading"><span className="brand-mark">VS</span><div><p className="eyebrow">Create an account</p><h2>{otpSent ? 'Verify your email' : 'Join VeloSync'}</h2></div></div>
+        {status && <div className={status.includes('sent') ? 'alert-success' : 'alert-error'} role="status">{status}</div>}
+        <form onSubmit={handleSubmit} noValidate>
+          <InputField label="Full name" name="name" value={formData.name} onChange={update} error={errors.name} placeholder="Your name" required autoComplete="name" />
+          <InputField label="Email address" name="email" type="email" value={formData.email} onChange={update} error={errors.email} placeholder="you@example.com" required autoComplete="email" />
+          <InputField label="Password" name="password" type="password" value={formData.password} onChange={update} error={errors.password} placeholder="At least 8 characters" required autoComplete="new-password" />
+          {otpSent && <InputField label="Verification code" name="otp" value={formData.otp} onChange={update} error={errors.otp} placeholder="6-digit code" required inputMode="numeric" />}
+          <button type="submit" className="btn btn-primary bg-eco-green full-width" disabled={isProcessing}>{isProcessing ? 'Working...' : otpSent ? 'Verify and create account' : 'Send verification code'}</button>
         </form>
-        <Link to="/signin">Already have an account? Sign In</Link>
-      </div>
-      {testOtp && (
-        <aside className="test-otp" aria-live="polite">
-          <span>Testing OTP</span>
-          <strong>{testOtp}</strong>
-        </aside>
-      )}
+        {testOtp && <div className="demo-code" role="status"><span>Demo code</span><strong>{testOtp}</strong><small>Visible because test OTP mode is enabled.</small></div>}
+        <p className="switch-page">Already have an account? <Link to="/signin">Sign in</Link></p>
+      </main>
     </div>
   );
-};
-export default Signup;
+}

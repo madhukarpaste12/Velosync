@@ -19,8 +19,9 @@ const SignIn = () => {
 
   const validate = () => {
     const newErrors = {};
-    if (!formData.email) newErrors.email = 'Email is required';
-    if (!formData.password) newErrors.password = 'Password is required';
+    if (!formData.email) newErrors.email = 'This field is required.';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) newErrors.email = 'Please enter a valid email address.';
+    if (!formData.password) newErrors.password = 'This field is required.';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -53,11 +54,12 @@ const SignIn = () => {
     <div className="page-container center-content bg-light">
       <div className="auth-card">
         <h2 className="brand-title color-ocean-blue">Welcome Back</h2>
-        {serverError && <div className="alert-error">{serverError}</div>}
+        {location.state?.message && <div className="alert-success" role="status">{location.state.message}</div>}
+        {serverError && <div className="alert-error" role="alert">{serverError}</div>}
         
         <form onSubmit={handleSubmit}>
-          <InputField label="Email Address" name="email" type="email" value={formData.email} onChange={handleChange} error={errors.email} placeholder="Enter your email" />
-          <InputField label="Password" name="password" type="password" value={formData.password} onChange={handleChange} error={errors.password} placeholder="Enter your password" />
+          <InputField label="Email address" name="email" type="email" value={formData.email} onChange={handleChange} error={errors.email} placeholder="you@example.com" required autoComplete="email" />
+          <InputField label="Password" name="password" type="password" value={formData.password} onChange={handleChange} error={errors.password} placeholder="Enter your password" required autoComplete="current-password" />
           
           <div className="checkbox-group">
             <input type="checkbox" id="rememberMe" name="rememberMe" checked={formData.rememberMe} onChange={handleChange} />
@@ -68,6 +70,7 @@ const SignIn = () => {
             {isProcessing ? 'Authenticating...' : 'Sign In'}
           </button>
         </form>
+        <Link className="form-link" to="/forgot-password">Forgot your password?</Link>
         
         <p className="switch-page">
           Don't have an account? <Link to="/signup">Sign Up</Link>

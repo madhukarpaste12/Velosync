@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-const InputField = ({ label, type = 'text', value, onChange, error, placeholder, name }) => {
+const InputField = ({ label, type = 'text', value, onChange, error, placeholder, name, required = false, autoComplete }) => {
   const [showPassword, setShowPassword] = useState(false);
   const isPassword = type === 'password';
   const inputType = isPassword ? (showPassword ? 'text' : 'password') : type;
@@ -16,6 +16,10 @@ const InputField = ({ label, type = 'text', value, onChange, error, placeholder,
           value={value}
           onChange={onChange}
           placeholder={placeholder}
+          required={required}
+          autoComplete={autoComplete}
+          aria-invalid={Boolean(error)}
+          aria-describedby={error ? `${name}-error` : undefined}
           className={error ? 'input-error' : ''}
         />
         {isPassword && (
@@ -28,7 +32,7 @@ const InputField = ({ label, type = 'text', value, onChange, error, placeholder,
           </button>
         )}
       </div>
-      {error && <span className="error-message">{error}</span>}
+      {error && <span id={`${name}-error`} className="error-message" role="alert">{error}</span>}
     </div>
   );
 };
