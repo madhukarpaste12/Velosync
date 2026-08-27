@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import InputField from '../components/InputField';
 import { authService } from '../services/authService';
@@ -12,7 +12,10 @@ export default function SignUp() {
   const [testOtp, setTestOtp] = useState('');
   const [status, setStatus] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   const navigate = useNavigate();
+
+  useEffect(() => { if (!cooldown) return undefined; const timer = window.setInterval(() => setCooldown((current) => Math.max(0, current - 1)), 1000); return () => window.clearInterval(timer); }, [cooldown]);
 
   const update = (event) => {
     const { name, value } = event.target;
@@ -43,8 +46,9 @@ export default function SignUp() {
       if (!otpSent) {
         const response = await authService.signup({ name: formData.name.trim(), email: formData.email, password: formData.password });
         setOtpSent(true);
-        setTestOtp(response.testOtp || '');
-        setStatus('Verification code sent. Check your email to continue.');
+        setTestOtp(response.demoOtp || '');
+        setCooldown(30);
+        setStatus('Demo OTP generated successfully. Use the code shown below.');
       } else {
         await authService.verifyOtp(formData);
         navigate('/signin', { state: { message: 'Account created. You can now sign in.' } });
@@ -54,12 +58,18 @@ export default function SignUp() {
     } finally { setIsProcessing(false); }
   };
 
+  const resend = async () => {
+    if (cooldown || isProcessing) return;
+    setIsProcessing(true);
+    try { const response = await authService.signup({ name: formData.name.trim(), email: formData.email, password: formData.password }); setTestOtp(response.demoOtp || ''); setCooldown(30); setStatus('A new DEMO OTP was generated. The previous code is invalid.'); } catch (error) { setStatus(error.response?.data?.message || 'Unable to generate a new OTP.'); } finally { setIsProcessing(false); }
+  };
+
   return (
     <div className="auth-shell">
       <section className="auth-aside"><span className="eyebrow">VeloSync / membership</span><h1>Move through the city with less friction.</h1><p>One account for cleaner commutes, smart stations, and rides that fit your day.</p><div className="aside-stat"><strong>24/7</strong><span>connected mobility</span></div></section>
       <main className="auth-card auth-form-card">
         <div className="auth-heading"><span className="brand-mark">VS</span><div><p className="eyebrow">Create an account</p><h2>{otpSent ? 'Verify your email' : 'Join VeloSync'}</h2></div></div>
-        {status && <div className={status.includes('sent') ? 'alert-success' : 'alert-error'} role="status">{status}</div>}
+        {status && <div className={status.includes('OTP') ? 'alert-success' : 'alert-error'} role="status">{status}</div>}
         <form onSubmit={handleSubmit} noValidate>
           <InputField label="Full name" name="name" value={formData.name} onChange={update} error={errors.name} placeholder="Your name" required autoComplete="name" />
           <InputField label="Email address" name="email" type="email" value={formData.email} onChange={update} error={errors.email} placeholder="you@example.com" required autoComplete="email" />
@@ -67,7 +77,7 @@ export default function SignUp() {
           {otpSent && <InputField label="Verification code" name="otp" value={formData.otp} onChange={update} error={errors.otp} placeholder="6-digit code" required inputMode="numeric" />}
           <button type="submit" className="btn btn-primary bg-eco-green full-width" disabled={isProcessing}>{isProcessing ? 'Working...' : otpSent ? 'Verify and create account' : 'Send verification code'}</button>
         </form>
-        {testOtp && <div className="demo-code" role="status"><span>Demo code</span><strong>{testOtp}</strong><small>Visible because test OTP mode is enabled.</small></div>}
+        {testOtp && <div className="demo-code" role="status"><span>DEMO OTP</span><strong>{testOtp}</strong><small>For project demonstration only. Expires in 5 minutes.</small><button type="button" className="text-action" onClick={resend} disabled={cooldown > 0 || isProcessing}>{cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend OTP'}</button></div>}
         <p className="switch-page">Already have an account? <Link to="/signin">Sign in</Link></p>
       </main>
     </div>

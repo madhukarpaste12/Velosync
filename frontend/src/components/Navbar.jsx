@@ -1,13 +1,14 @@
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import { useAuth } from '../context/useAuth';
 
 const Navbar = () => {
   const { user, logout } = useAuth();
-  const navigate = useNavigate();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  const handleLogout = () => {
-    logout();
-    navigate('/signin', { replace: true }); // replace: true prevents hitting the back button to return here
+  const handleLogout = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    try { await logout(); } finally { window.location.replace('/'); }
   };
 
   return (
@@ -15,7 +16,7 @@ const Navbar = () => {
       <div className="nav-brand">VeloSync</div>
       <div className="nav-controls">
         <span className="user-greeting">Hello, {user?.name.split(' ')[0]}</span>
-        <button onClick={handleLogout} className="btn-danger">Logout</button>
+        <button onClick={handleLogout} className="btn-danger" disabled={isLoggingOut}>{isLoggingOut ? 'Logging out...' : 'Logout'}</button>
       </div>
     </nav>
   );

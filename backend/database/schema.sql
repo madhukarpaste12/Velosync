@@ -34,12 +34,19 @@ CREATE INDEX IF NOT EXISTS refresh_tokens_expires_at_idx ON refresh_tokens(expir
 CREATE TABLE IF NOT EXISTS email_otps (
   id BIGSERIAL PRIMARY KEY,
   email CITEXT NOT NULL,
+  purpose VARCHAR(30) NOT NULL DEFAULT 'SIGNUP' CHECK (purpose IN ('SIGNUP', 'PASSWORD_RESET')),
   otp_hash TEXT NOT NULL,
   expires_at TIMESTAMPTZ NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
   consumed_at TIMESTAMPTZ,
+  reset_used_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS email_otps_email_created_idx ON email_otps(email, created_at DESC);
+ALTER TABLE email_otps ADD COLUMN IF NOT EXISTS purpose VARCHAR(30) NOT NULL DEFAULT 'SIGNUP';
+ALTER TABLE email_otps ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE email_otps ADD COLUMN IF NOT EXISTS reset_used_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS email_otps_email_purpose_idx ON email_otps(email, purpose, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS stations (
   id VARCHAR(20) PRIMARY KEY,

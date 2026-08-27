@@ -8,6 +8,13 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+api.interceptors.response.use((response) => response, (error) => {
+  const status = error.response?.status;
+  const isAuthRequest = error.config?.url?.includes('/auth/login') || error.config?.url?.includes('/auth/signup') || error.config?.url?.includes('/auth/verify-otp');
+  if ((status === 401 || status === 403) && !isAuthRequest) window.dispatchEvent(new Event('velosync:auth-invalid'));
+  return Promise.reject(error);
+});
+
 // Service Worker / Offline Logic
 export const endRideWithOfflineFallback = async (payload) => {
   if (!navigator.onLine || payload.simulatedOffline) {
