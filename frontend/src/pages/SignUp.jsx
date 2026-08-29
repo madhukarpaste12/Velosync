@@ -9,7 +9,6 @@ export default function SignUp() {
   const [formData, setFormData] = useState(initialForm);
   const [errors, setErrors] = useState({});
   const [otpSent, setOtpSent] = useState(false);
-  const [testOtp, setTestOtp] = useState('');
   const [status, setStatus] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -44,11 +43,10 @@ export default function SignUp() {
     setIsProcessing(true);
     try {
       if (!otpSent) {
-        const response = await authService.signup({ name: formData.name.trim(), email: formData.email, password: formData.password });
+        await authService.signup({ name: formData.name.trim(), email: formData.email, password: formData.password });
         setOtpSent(true);
-        setTestOtp(response.demoOtp || '');
         setCooldown(30);
-        setStatus('Demo OTP generated successfully. Use the code shown below.');
+        setStatus('A verification code has been sent to your email.');
       } else {
         await authService.verifyOtp(formData);
         navigate('/signin', { state: { message: 'Account created. You can now sign in.' } });
@@ -61,7 +59,11 @@ export default function SignUp() {
   const resend = async () => {
     if (cooldown || isProcessing) return;
     setIsProcessing(true);
-    try { const response = await authService.signup({ name: formData.name.trim(), email: formData.email, password: formData.password }); setTestOtp(response.demoOtp || ''); setCooldown(30); setStatus('A new DEMO OTP was generated. The previous code is invalid.'); } catch (error) { setStatus(error.response?.data?.message || 'Unable to generate a new OTP.'); } finally { setIsProcessing(false); }
+    try {
+      await authService.signup({ name: formData.name.trim(), email: formData.email, password: formData.password });
+      setCooldown(30);
+      setStatus('A new verification code has been sent to your email.');
+    } catch (error) { setStatus(error.response?.data?.message || 'Unable to generate a new OTP.'); } finally { setIsProcessing(false); }
   };
 
   return (
@@ -77,7 +79,7 @@ export default function SignUp() {
           {otpSent && <InputField label="Verification code" name="otp" value={formData.otp} onChange={update} error={errors.otp} placeholder="6-digit code" required inputMode="numeric" />}
           <button type="submit" className="btn btn-primary bg-eco-green full-width" disabled={isProcessing}>{isProcessing ? 'Working...' : otpSent ? 'Verify and create account' : 'Send verification code'}</button>
         </form>
-        {testOtp && <div className="demo-code" role="status"><span>DEMO OTP</span><strong>{testOtp}</strong><small>For project demonstration only. Expires in 5 minutes.</small><button type="button" className="text-action" onClick={resend} disabled={cooldown > 0 || isProcessing}>{cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend OTP'}</button></div>}
+        {otpSent && <div className="demo-code" role="status"><span>VERIFICATION</span><small>Use the code sent to your email. Expires in 5 minutes.</small><button type="button" className="text-action" onClick={resend} disabled={cooldown > 0 || isProcessing}>{cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend OTP'}</button></div>}
         <p className="switch-page">Already have an account? <Link to="/signin">Sign in</Link></p>
       </main>
     </div>

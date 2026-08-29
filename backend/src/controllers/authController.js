@@ -2,43 +2,90 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
 const { generateAccessToken, generateRefreshToken } = require('../utils/tokenUtils');
-const { OTP_TTL_MINUTES, REQUEST_COOLDOWN_MS, MAX_ATTEMPTS, generateOtp, hashOtp, isValidOtp, demoOtpResponse } = require('../utils/otpUtils');
+const { sendOtpEmail } = require('../utils/emailService');
+const {
+  OTP_TTL_MINUTES,
+  REQUEST_COOLDOWN_MS,
+  MAX_ATTEMPTS,
+  OTP_PURPOSES,
+  generateOtp,
+  hashOtp,
+  isValidOtp
+} = require('../utils/otpUtils');
 
 const setRefreshCookie = (res, token) => res.cookie('refreshToken', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/', maxAge: 7 * 24 * 60 * 60 * 1000 });
 const operationalError = (message, statusCode) => Object.assign(new Error(message), { statusCode, isOperational: true });
 
+const normalizeEmail = (value = '') => String(value).trim().toLowerCase();
+
 const issueOtp = async (email, purpose) => {
-  const recent = await pool.query('SELECT created_at FROM email_otps WHERE email = $1 AND purpose = $2 ORDER BY created_at DESC LIMIT 1', [email, purpose]);
-  if (recent.rows[0] && Date.now() - new Date(recent.rows[0].created_at).getTime() < REQUEST_COOLDOWN_MS) throw operationalError('Please wait 30 seconds before requesting another OTP.', 429);
+  const normalizedEmail = normalizeEmail(email);
+  const recent = await pool.query('SELECT created_at FROM email_otps WHERE email = $1 AND purpose = $2 ORDER BY created_at DESC LIMIT 1', [normalizedEmail, purpose]);
+  if (recent.rows[0] && Date.now() - new Date(recent.rows[0].created_at).getTime() < REQUEST_COOLDOWN_MS) {
+    throw operationalError('Please wait 30 seconds before requesting another OTP.', 429);
+  }
+
   const otp = generateOtp();
-  await pool.query('DELETE FROM email_otps WHERE email = $1 AND purpose = $2', [email, purpose]);
-  await pool.query("INSERT INTO email_otps (email, purpose, otp_hash, expires_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP + INTERVAL '5 minutes')", [email, purpose, await hashOtp(otp)]);
+  const otpHash = await hashOtp(otp);
+  await pool.query('DELETE FROM email_otps WHERE email = $1 AND purpose = $2', [normalizedEmail, purpose]);
+  const inserted = await pool.query(
+    "INSERT INTO email_otps (email, purpose, otp_hash, expires_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP + INTERVAL '5 minutes') RETURNING id",
+    [normalizedEmail, purpose, otpHash]
+  );
+
+  try {
+    await sendOtpEmail({ to: normalizedEmail, otp, purpose, expiresMinutes: OTP_TTL_MINUTES });
+  } catch (error) {
+    await pool.query('DELETE FROM email_otps WHERE id = $1', [inserted.rows[0].id]);
+    throw operationalError('Unable to send the verification code to your email. Please try again.', 500);
+  }
+
   return otp;
 };
 
 exports.signup = async (req, res, next) => {
   try {
     const { name, email } = req.body;
-    if ((await pool.query('SELECT id FROM users WHERE email = $1', [email])).rows[0]) throw operationalError('Email already registered', 409);
-    const otp = await issueOtp(email, 'SIGNUP');
-    res.json({ success: true, message: 'Demo OTP generated successfully.', ...demoOtpResponse(otp), expiresInSeconds: OTP_TTL_MINUTES * 60 });
+    const normalizedEmail = normalizeEmail(email);
+    if (!name || !normalizedEmail || !req.body.password) {
+      return res.status(422).json({ success: false, message: 'Name, email, and password are required.' });
+    }
+    if ((await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail])).rows[0]) {
+      throw operationalError('Email already registered.', 409);
+    }
+    await issueOtp(normalizedEmail, OTP_PURPOSES.SIGNUP_VERIFICATION);
+    res.json({ success: true, message: 'A verification code has been sent to your email.' });
   } catch (error) { next(error); }
 };
 
 exports.verifyOtp = async (req, res, next) => {
   const { name, email, password, otp } = req.body;
-  if (!name || !email || !password || !isValidOtp(otp)) return res.status(422).json({ success: false, message: 'Name, email, password, and a valid 6-digit OTP are required.' });
+  const normalizedEmail = normalizeEmail(email);
+  if (!name || !normalizedEmail || !password || !isValidOtp(otp)) {
+    return res.status(422).json({ success: false, message: 'Name, email, password, and a valid 6-digit OTP are required.' });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const record = await client.query('SELECT id, otp_hash, attempts FROM email_otps WHERE email = $1 AND purpose = $2 AND consumed_at IS NULL AND expires_at > CURRENT_TIMESTAMP FOR UPDATE', [email, 'SIGNUP']);
-    if (!record.rows[0]) throw operationalError('This OTP has expired. Please request a new one.', 400);
-    if (record.rows[0].attempts >= MAX_ATTEMPTS) throw operationalError('Too many incorrect attempts. Please request a new OTP.', 429);
+    const record = await client.query(
+      'SELECT id, otp_hash, attempts FROM email_otps WHERE email = $1 AND purpose = $2 AND consumed_at IS NULL AND expires_at > CURRENT_TIMESTAMP FOR UPDATE',
+      [normalizedEmail, OTP_PURPOSES.SIGNUP_VERIFICATION]
+    );
+    if (!record.rows[0]) throw operationalError('This verification code has expired. Please request a new one.', 400);
+    if (record.rows[0].attempts >= MAX_ATTEMPTS) throw operationalError('Too many incorrect attempts. Please request a new code.', 429);
     if (!(await bcrypt.compare(otp, record.rows[0].otp_hash))) {
       await client.query('UPDATE email_otps SET attempts = attempts + 1 WHERE id = $1', [record.rows[0].id]);
-      throw operationalError('Incorrect OTP. Please try again.', 400);
+      throw operationalError('Incorrect verification code. Please try again.', 400);
     }
-    const user = await client.query('INSERT INTO users (name, email, password_hash, is_email_verified) VALUES ($1, $2, $3, TRUE) RETURNING id, name, email', [name, email, await bcrypt.hash(password, 12)]);
+
+    const existingUser = await client.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
+    if (existingUser.rows[0]) throw operationalError('Email already registered.', 409);
+
+    const user = await client.query(
+      'INSERT INTO users (name, email, password_hash, is_email_verified) VALUES ($1, $2, $3, TRUE) RETURNING id, name, email',
+      [name.trim(), normalizedEmail, await bcrypt.hash(password, 12)]
+    );
     await client.query('UPDATE email_otps SET consumed_at = CURRENT_TIMESTAMP WHERE id = $1', [record.rows[0].id]);
     await client.query('COMMIT');
     res.status(201).json({ success: true, message: 'OTP verified successfully. Account created.', user: user.rows[0] });
@@ -48,22 +95,29 @@ exports.verifyOtp = async (req, res, next) => {
 exports.requestResetOtp = async (req, res, next) => {
   try {
     const { email } = req.body;
-    if (!(await pool.query('SELECT id FROM users WHERE email = $1', [email])).rows[0]) throw operationalError('No account was found for that email.', 404);
-    const otp = await issueOtp(email, 'PASSWORD_RESET');
-    res.json({ success: true, message: 'Demo OTP generated successfully.', ...demoOtpResponse(otp), expiresInSeconds: OTP_TTL_MINUTES * 60 });
+    const normalizedEmail = normalizeEmail(email);
+    const user = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
+    if (user.rows[0]) {
+      await issueOtp(normalizedEmail, OTP_PURPOSES.FORGOT_PASSWORD);
+    }
+    res.json({ success: true, message: 'If an account exists for this email, a verification code has been sent.' });
   } catch (error) { next(error); }
 };
 
 exports.verifyResetOtp = async (req, res, next) => {
   try {
     const { email, otp } = req.body;
-    if (!isValidOtp(otp)) return res.status(422).json({ success: false, message: 'Please enter a valid 6-digit OTP.' });
-    const result = await pool.query('SELECT id, otp_hash, attempts FROM email_otps WHERE email = $1 AND purpose = $2 AND consumed_at IS NULL AND expires_at > CURRENT_TIMESTAMP', [email, 'PASSWORD_RESET']);
-    if (!result.rows[0]) throw operationalError('This OTP has expired. Please request a new one.', 400);
-    if (result.rows[0].attempts >= MAX_ATTEMPTS) throw operationalError('Too many incorrect attempts. Please request a new OTP.', 429);
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail || !isValidOtp(otp)) return res.status(422).json({ success: false, message: 'Please enter a valid 6-digit OTP.' });
+    const result = await pool.query(
+      'SELECT id, otp_hash, attempts FROM email_otps WHERE email = $1 AND purpose = $2 AND consumed_at IS NULL AND expires_at > CURRENT_TIMESTAMP',
+      [normalizedEmail, OTP_PURPOSES.FORGOT_PASSWORD]
+    );
+    if (!result.rows[0]) throw operationalError('This verification code has expired. Please request a new one.', 400);
+    if (result.rows[0].attempts >= MAX_ATTEMPTS) throw operationalError('Too many incorrect attempts. Please request a new code.', 429);
     if (!(await bcrypt.compare(otp, result.rows[0].otp_hash))) {
       await pool.query('UPDATE email_otps SET attempts = attempts + 1 WHERE id = $1', [result.rows[0].id]);
-      throw operationalError('Incorrect OTP. Please try again.', 400);
+      throw operationalError('Incorrect verification code. Please try again.', 400);
     }
     await pool.query('UPDATE email_otps SET consumed_at = CURRENT_TIMESTAMP WHERE id = $1', [result.rows[0].id]);
     res.json({ success: true, message: 'OTP verified successfully.', resetToken: result.rows[0].id.toString() });
@@ -74,11 +128,15 @@ exports.resetPassword = async (req, res, next) => {
   const client = await pool.connect();
   try {
     const { email, resetToken, password } = req.body;
+    const normalizedEmail = normalizeEmail(email);
     if (!password || password.length < 8 || !/\d/.test(password)) return res.status(422).json({ success: false, message: 'Password must contain at least 8 characters and one number.' });
     await client.query('BEGIN');
-    const token = await client.query('UPDATE email_otps SET reset_used_at = CURRENT_TIMESTAMP WHERE id = $1 AND email = $2 AND purpose = $3 AND consumed_at IS NOT NULL AND reset_used_at IS NULL RETURNING id', [resetToken, email, 'PASSWORD_RESET']);
+    const token = await client.query(
+      'UPDATE email_otps SET reset_used_at = CURRENT_TIMESTAMP WHERE id = $1 AND email = $2 AND purpose = $3 AND consumed_at IS NOT NULL AND reset_used_at IS NULL RETURNING id',
+      [resetToken, normalizedEmail, OTP_PURPOSES.FORGOT_PASSWORD]
+    );
     if (!token.rows[0]) throw operationalError('Password reset session is invalid. Please request a new OTP.', 400);
-    await client.query('UPDATE users SET password_hash = $1 WHERE email = $2', [await bcrypt.hash(password, 12), email]);
+    await client.query('UPDATE users SET password_hash = $1 WHERE email = $2', [await bcrypt.hash(password, 12), normalizedEmail]);
     await client.query('COMMIT');
     res.json({ success: true, message: 'Password reset successfully.' });
   } catch (error) { await client.query('ROLLBACK'); next(error); } finally { client.release(); }

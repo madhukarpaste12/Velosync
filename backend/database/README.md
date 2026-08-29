@@ -22,9 +22,9 @@ $env:Path += ';C:\Program Files\PostgreSQL\18\bin'
 
 Seed data is for development only. It creates stations and bicycles, but no demo password or real payment credentials.
 
-Required backend variables are documented in `backend/.env.example`: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `JWT_ACCESS_SECRET`, and `JWT_REFRESH_SECRET`. No email provider is required. Demo OTPs are stored hashed in `email_otps`, expire after five minutes, and are returned only when `NODE_ENV` is not `production`. They are invalidated after use and limited by cooldown and attempt count.
+Required backend variables are documented in `backend/.env.example`: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `EMAIL_USER`, and `EMAIL_APP_PASSWORD`. The OTP is stored as a hash in `email_otps`, expires after five minutes, and is invalidated after use with a per-code attempt limit and resend cooldown.
 
-The demo OTP is server-side and database-backed, so it survives a backend restart until it expires. This is suitable for a college demonstration; production should use a secure delivery provider and a dedicated reset-token design.
+The app uses Gmail SMTP via Nodemailer for signup verification and password reset OTP delivery. The email content is generated server-side and never exposed to the frontend.
 
 ## Relationships
 
