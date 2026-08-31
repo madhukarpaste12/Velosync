@@ -8,6 +8,7 @@ const errorHandler = require('./middleware/errorMiddleware');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const mobilityRoutes = require('./routes/mobilityRoutes');
+const walletRoutes = require('./routes/walletRoutes');
 
 const app = express();
 
@@ -36,6 +37,7 @@ app.get('/api/health', (req, res) => {
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/wallet', walletRoutes);
 app.use('/api', mobilityRoutes);
 
 // Global Error Handler

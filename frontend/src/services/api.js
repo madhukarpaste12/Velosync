@@ -29,6 +29,20 @@ export const endRideWithOfflineFallback = async (payload) => {
   return res.data;
 };
 
+export const getWalletGatewayStatus = async () => {
+  const res = await api.get('/wallet/status');
+  return res.data;
+};
+
+export const createWalletTopUp = async (payload) => {
+  try {
+    const res = await api.post('/wallet/topup', payload);
+    return res.data;
+  } catch (error) {
+    return error.response?.data || { success: false, message: error.message || 'Payment request failed.' };
+  }
+};
+
 // Background Sync Function called when app detects network
 export const syncOfflineRides = async () => {
   const queue = JSON.parse(localStorage.getItem('offlineQueue') || '[]');
