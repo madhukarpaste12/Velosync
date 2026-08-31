@@ -1,16 +1,65 @@
+const path = require('path');
 const nodemailer = require('nodemailer');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
-const mailConfig = {
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_APP_PASSWORD
+const normalizeBoolean = (value) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
   }
+  return false;
 };
 
-const transporter = nodemailer.createTransport(mailConfig);
+const getSmtpConfig = () => {
+  const host = process.env.SMTP_HOST || process.env.EMAIL_HOST || 'smtp.gmail.com';
+  const port = Number(process.env.SMTP_PORT || process.env.EMAIL_PORT || 587);
+  const secure = normalizeBoolean(process.env.SMTP_SECURE ?? process.env.EMAIL_SECURE ?? (port === 465));
+  const user = process.env.SMTP_USER || process.env.EMAIL_USER || '';
+  const password = process.env.SMTP_PASSWORD || process.env.EMAIL_APP_PASSWORD || '';
+  const from = process.env.SMTP_FROM || process.env.EMAIL_FROM || user || 'noreply@localhost';
+
+  return {
+    host,
+    port,
+    secure,
+    auth: {
+      user,
+      pass: password
+    },
+    from
+  };
+};
+
+const createTransporter = () => {
+  const config = getSmtpConfig();
+  const missing = [];
+
+  if (!config.host) missing.push('SMTP_HOST');
+  if (!config.auth.user) missing.push('SMTP_USER');
+  if (!config.auth.pass) missing.push('SMTP_PASSWORD');
+
+  if (missing.length) {
+    console.warn(`[SMTP] Configuration missing: ${missing.join(', ')}. OTP emails will fail until they are set in backend/.env.`);
+    return null;
+  }
+
+  return nodemailer.createTransport({
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    auth: {
+      user: config.auth.user,
+      pass: config.auth.pass
+    },
+    tls: {
+      rejectUnauthorized: false
+    }
+  });
+};
+
+const transporter = createTransporter();
 
 const getPurposeConfig = (purpose) => {
   if (purpose === 'FORGOT_PASSWORD') {
@@ -54,22 +103,51 @@ const buildOtpEmail = ({ purpose, otp, expiresMinutes = 5, supportEmail = 'hello
   };
 };
 
+const verifySmtpConnection = async () => {
+  const activeTransporter = transporter || createTransporter();
+  if (!activeTransporter) {
+    console.warn('[SMTP] SMTP transport is not configured. Skipping connection verification.');
+    return false;
+  }
+
+  try {
+    await activeTransporter.verify();
+    console.log(`[SMTP] Connection verified successfully for ${getSmtpConfig().host}:${getSmtpConfig().port}.`);
+    return true;
+  } catch (error) {
+    console.error('[SMTP] Connection verification failed:', error.message);
+    return false;
+  }
+};
+
 const sendOtpEmail = async ({ to, otp, purpose, expiresMinutes = 5 }) => {
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
-    throw new Error('Missing Gmail SMTP credentials. Set EMAIL_USER and EMAIL_APP_PASSWORD in backend/.env.');
+  const config = getSmtpConfig();
+  const activeTransporter = transporter || createTransporter();
+
+  if (!config.auth.user || !config.auth.pass) {
+    throw new Error('Missing SMTP configuration. Set SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASSWORD, and SMTP_FROM in backend/.env.');
+  }
+
+  if (!activeTransporter) {
+    throw new Error('SMTP transporter could not be created. Check your SMTP configuration in backend/.env.');
   }
 
   const mail = buildOtpEmail({ purpose, otp, expiresMinutes });
 
-  await transporter.sendMail({
-    from: `VeloSync <${process.env.EMAIL_USER}>`,
-    to,
-    subject: mail.subject,
-    text: mail.text,
-    html: mail.html
-  });
-
-  return true;
+  try {
+    await activeTransporter.sendMail({
+      from: config.from,
+      to,
+      subject: mail.subject,
+      text: mail.text,
+      html: mail.html
+    });
+    console.log(`[SMTP] OTP email sent successfully for ${to} (${purpose}).`);
+    return true;
+  } catch (error) {
+    console.error('[SMTP] OTP email sending failed:', { to, purpose, error: error.message });
+    throw error;
+  }
 };
 
-module.exports = { sendOtpEmail, buildOtpEmail };
+module.exports = { sendOtpEmail, buildOtpEmail, getSmtpConfig, verifySmtpConnection };
