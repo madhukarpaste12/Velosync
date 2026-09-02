@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
-import { MapContainer, Marker, Popup, TileLayer, useMap, Polyline } from 'react-leaflet';
+import { Circle, MapContainer, Marker, Popup, TileLayer, useMap, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import { endRideWithOfflineFallback, syncOfflineRides, getStations, getUserProfile } from '../services/api';
 import 'leaflet/dist/leaflet.css';
@@ -11,11 +11,11 @@ const rupees = (value) => `₹${Number(value).toFixed(2)}`;
 const stationIcon = (available, bounty) => L.divIcon({ className: 'velo-marker-shell', html: `<div class="velo-marker ${bounty ? 'is-bounty' : ''}">🚲<b>${available}</b></div>`, iconSize: [48, 48], iconAnchor: [24, 42], popupAnchor: [0, -42] });
 const userLocationIcon = L.divIcon({ className: 'user-location-marker', html: '<div class="location-dot">📍</div>', iconSize: [32, 32], iconAnchor: [16, 16] });
 
-function MapControls({ onMyLocation }) {
+function MapControls({ onMyLocation, isGettingLocation, hasLocation }) {
   return (
     <div className="map-controls-container">
-      <button className="location-button" onClick={onMyLocation} title="Go to my location">
-        📍
+      <button className={`location-button ${hasLocation ? 'has-location' : ''}`} onClick={onMyLocation} disabled={isGettingLocation} aria-label="Show my location" title="Show my location">
+        <span className={`location-target ${isGettingLocation ? 'is-loading' : ''}`} aria-hidden="true" />
       </button>
     </div>
   );
@@ -60,6 +60,7 @@ export default function Home() {
   const [issue, setIssue] = useState({ asset: '', type: 'Solenoid Lock Glitch', notes: '' });
   const [isLoadingStations, setIsLoadingStations] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
+  const [locationAccuracy, setLocationAccuracy] = useState(null);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [trackingRoute, setTrackingRoute] = useState([]);
   
@@ -114,6 +115,7 @@ export default function Home() {
       (position) => {
         const { latitude, longitude } = position.coords;
         setUserLocation([latitude, longitude]);
+        setLocationAccuracy(position.coords.accuracy);
         if (mapRef.current) {
           mapRef.current.flyTo([latitude, longitude], 15, { duration: 0.9 });
         }
@@ -147,6 +149,7 @@ export default function Home() {
           const { latitude, longitude } = position.coords;
           const newLocation = [latitude, longitude];
           setUserLocation(newLocation);
+          setLocationAccuracy(position.coords.accuracy);
           setTrackingRoute((prev) => [...prev, newLocation]);
         },
         (error) => {
@@ -192,7 +195,7 @@ export default function Home() {
   const submitIssue = (event) => { event.preventDefault(); setPanel(''); setIssue({ asset: '', type: 'Solenoid Lock Glitch', notes: '' }); setToast('Issue reported. Our field team has been notified.'); };
   const handleLogout = async () => { if (isLoggingOut) return; setIsLoggingOut(true); setToast('Logging out...'); try { await logout(); } finally { window.location.replace('/'); } };
   
-  return <main className="velo-app"><MapContainer ref={mapRef} center={CITIES[city]} zoom={13} className="velo-map" zoomControl={false}><MapReady center={CITIES[city]} /><TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />{userLocation && <Marker position={userLocation} icon={userLocationIcon}><Popup>Your current location</Popup></Marker>}{trackingRoute.length > 0 && <Polyline positions={trackingRoute} color="#007bff" weight={3} opacity={0.8} />}{visibleStations.map((station) => { const bounty = station.available / station.capacity < .2; return <Marker key={station.id} position={[station.lat, station.lng]} icon={stationIcon(station.available, bounty)}><Popup><div className="station-popup"><span>{station.id}</span><h3>{station.name}</h3><p><b>{station.available}</b> cycles · {station.capacity} docks</p>{bounty && <div className="bounty-tag">⚡ ₹5 Rebalancing Bounty</div>}<button className="button button-primary" onClick={() => navigate(`/station/${station.id}`)}>View station & rent</button></div></Popup></Marker>; })}<MapControls onMyLocation={handleMyLocation} /></MapContainer>
+  return <main className="velo-app"><MapContainer ref={mapRef} center={CITIES[city]} zoom={13} className="velo-map" zoomControl={false}><MapReady center={CITIES[city]} /><TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />{userLocation && <><Circle center={userLocation} radius={locationAccuracy || 30} pathOptions={{ color: '#2563eb', fillColor: '#2563eb', fillOpacity: 0.12, weight: 1 }} /><Marker position={userLocation} icon={userLocationIcon}><Popup>Your current location</Popup></Marker></>}{trackingRoute.length > 0 && <Polyline positions={trackingRoute} color="#007bff" weight={3} opacity={0.8} />}{visibleStations.map((station) => { const bounty = station.available / station.capacity < .2; return <Marker key={station.id} position={[station.lat, station.lng]} icon={stationIcon(station.available, bounty)}><Popup><div className="station-popup"><span>{station.id}</span><h3>{station.name}</h3><p><b>{station.available}</b> cycles · {station.capacity} docks</p>{bounty && <div className="bounty-tag">⚡ ₹5 Rebalancing Bounty</div>}<button className="button button-primary" onClick={() => navigate(`/station/${station.id}`)}>View station & rent</button></div></Popup></Marker>; })}<MapControls onMyLocation={handleMyLocation} isGettingLocation={isGettingLocation} hasLocation={Boolean(userLocation)} /></MapContainer>
     <header className="velo-nav glass-panel"><div className="nav-left"><button className="icon-button" onClick={() => setPanel('profile')} aria-label="Open profile">👤</button><label className="city-select">📍<select value={city} onChange={(event) => setCity(event.target.value)}>{Object.keys(CITIES).map((name) => <option key={name}>{name}</option>)}</select></label></div><div className="nav-right"><div className="wallet-pill"><span>Wallet</span><b>{rupees(wallet)}</b><button onClick={() => setPanel('topup')}>+ Top up</button></div><button className="icon-button" onClick={() => setPanel('report')} aria-label="Report an issue">⚠️</button></div></header>
     <button className={`network-chip glass-panel ${online ? 'online' : 'offline'}`} onClick={() => setPanel('simulator')}>{online ? '● 4G / LTE Online' : '● Offline dead-zone'}</button>
     <section className={`ride-drawer ${ride ? 'is-riding' : ''}`}>{ride ? <><div className="ride-status"><i />Ride in progress</div><div className="ride-metrics"><div><span>Bicycle</span><b>{ride.bikeId}</b></div><div><span>Duration</span><b>{duration}</b></div><div><span>Live fare</span><b>{rupees(fare)}</b></div></div><button className="button button-danger" onClick={endRide}>🔒 End ride & lock</button></> : <><div><p className="drawer-kicker">Ready when you are</p><h1>Find your next ride</h1><p>Tap a station on the map or scan a cycle code.</p></div><button className="button button-primary scan-button" onClick={() => startRide(visibleStations.find((station) => station.available > 0))}>📷 Scan QR to rent</button></>}</section>
@@ -204,8 +207,8 @@ export default function Home() {
     <style>{`
       .map-controls-container {
         position: absolute;
-        bottom: 120px;
-        right: 10px;
+        bottom: 215px;
+        right: 14px;
         z-index: 400;
         display: flex;
         flex-direction: column;
@@ -215,31 +218,85 @@ export default function Home() {
       .location-button {
         width: 44px;
         height: 44px;
-        border-radius: 4px;
+        border-radius: 50%;
         background: white;
-        border: 1px solid #ddd;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        border: 1px solid #d7dee8;
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.22);
         cursor: pointer;
-        font-size: 20px;
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: all 0.2s ease;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
         padding: 0;
       }
 
       .location-button:hover {
         background: #f5f5f5;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.28);
       }
 
       .location-button:active {
         transform: scale(0.95);
       }
 
+      .location-button:disabled {
+        cursor: wait;
+        opacity: 0.75;
+      }
+
+      .location-target {
+        position: relative;
+        width: 18px;
+        height: 18px;
+        border: 2px solid #64748b;
+        border-radius: 50%;
+      }
+
+      .location-target::before,
+      .location-target::after {
+        content: '';
+        position: absolute;
+        background: #64748b;
+      }
+
+      .location-target::before {
+        width: 2px;
+        height: 24px;
+        left: 6px;
+        top: -5px;
+      }
+
+      .location-target::after {
+        width: 24px;
+        height: 2px;
+        left: -5px;
+        top: 6px;
+      }
+
+      .location-button.has-location .location-target {
+        border-color: #2563eb;
+      }
+
+      .location-button.has-location .location-target::before,
+      .location-button.has-location .location-target::after {
+        background: #2563eb;
+      }
+
+      .location-target.is-loading {
+        animation: locate-spin 0.9s linear infinite;
+      }
+
+      @keyframes locate-spin {
+        to { transform: rotate(360deg); }
+      }
+
       .location-dot {
         font-size: 16px;
         display: block;
+      }
+
+      @media (max-width: 699px) {
+        .map-controls-container { bottom: 205px; }
       }
     `}</style>
   </main>;
