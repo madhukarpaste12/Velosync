@@ -38,7 +38,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/wallet', walletRoutes);
-app.use('/api', mobilityRoutes);
+app.use('/api/mobility', mobilityRoutes);
 
 // Global Error Handler
 app.use(errorHandler);

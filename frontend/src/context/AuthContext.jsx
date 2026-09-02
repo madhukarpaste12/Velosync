@@ -27,6 +27,12 @@ export const AuthProvider = ({ children }) => {
     setUser(sessionUser);
   };
 
+  const loginAfterSignup = async (accessToken, userData) => {
+    localStorage.setItem('token', accessToken);
+    localStorage.setItem('velosync_session', JSON.stringify(userData));
+    setUser(userData);
+  };
+
   const logout = async () => {
     try { await authService.logout(); }
     catch { authService.clearSession(); }
@@ -34,7 +40,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <SessionContext.Provider value={{ user, isLoading, login, logout }}>
+    <SessionContext.Provider value={{ user, isLoading, login, loginAfterSignup, logout }}>
       {children}
     </SessionContext.Provider>
   );

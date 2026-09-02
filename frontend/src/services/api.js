@@ -15,6 +15,48 @@ api.interceptors.response.use((response) => response, (error) => {
   return Promise.reject(error);
 });
 
+// Stations API
+export const getStations = async (city) => {
+  try {
+    const res = await api.get('/mobility/stations', { params: city ? { city } : {} });
+    return res.data.stations || [];
+  } catch (error) {
+    console.error('Failed to fetch stations:', error);
+    return [];
+  }
+};
+
+export const getStation = async (stationId) => {
+  try {
+    const res = await api.get(`/mobility/stations/${stationId}`);
+    return res.data.station || null;
+  } catch (error) {
+    console.error('Failed to fetch station:', error);
+    return null;
+  }
+};
+
+// User Profile API
+export const getUserProfile = async () => {
+  try {
+    const res = await api.get('/auth/me');
+    return res.data.user || null;
+  } catch (error) {
+    console.error('Failed to fetch user profile:', error);
+    return null;
+  }
+};
+
+// Ride Management API
+export const startRide = async (bikeId) => {
+  try {
+    const res = await api.post('/mobility/rides/start', { bikeId });
+    return res.data;
+  } catch (error) {
+    throw error;
+  }
+};
+
 // Service Worker / Offline Logic
 export const endRideWithOfflineFallback = async (payload) => {
   if (!navigator.onLine || payload.simulatedOffline) {
@@ -25,7 +67,7 @@ export const endRideWithOfflineFallback = async (payload) => {
     return { offline: true, message: 'Network offline. Lock triggered via BLE. Ride data cached locally and will sync when 4G returns.' };
   }
   
-  const res = await api.post('/rides/end', payload);
+  const res = await api.post('/mobility/rides/end', payload);
   return res.data;
 };
 
@@ -50,7 +92,7 @@ export const syncOfflineRides = async () => {
   
   for (const payload of queue) {
     try {
-      await api.post('/rides/end', payload);
+      await api.post('/mobility/rides/end', payload);
     } catch (e) {
       console.error('Failed to sync payload', e);
     }

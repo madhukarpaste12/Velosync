@@ -44,7 +44,7 @@ const createTopUp = async (req, res, next) => {
       providerReference: providerReference || `velosync-${Date.now()}`
     };
 
-    if (!gatewayStatus.configured) {
+    if (!gatewayStatus.configured && normalizedMethod !== 'Demo Wallet') {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');

@@ -1,38 +1,183 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
-import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
+import { MapContainer, Marker, Popup, TileLayer, useMap, Polyline } from 'react-leaflet';
 import L from 'leaflet';
-import { endRideWithOfflineFallback, syncOfflineRides } from '../services/api';
+import { endRideWithOfflineFallback, syncOfflineRides, getStations, getUserProfile } from '../services/api';
 import 'leaflet/dist/leaflet.css';
 
 const CITIES = { Mumbai: [19.076, 72.8777], Pune: [18.5204, 73.8567], Bengaluru: [12.9716, 77.5946] };
-const STATIONS = [
-  { id: 'MUM-01', name: 'Bandra Linking Road', city: 'Mumbai', lat: 19.0596, lng: 72.8295, available: 2, capacity: 18 },
-  { id: 'MUM-02', name: 'BKC Metro Hub', city: 'Mumbai', lat: 19.0648, lng: 72.8695, available: 12, capacity: 20 },
-  { id: 'PUN-01', name: 'FC Road Junction', city: 'Pune', lat: 18.5209, lng: 73.8418, available: 3, capacity: 16 },
-  { id: 'PUN-02', name: 'Koregaon Park Gate', city: 'Pune', lat: 18.5362, lng: 73.8931, available: 10, capacity: 18 },
-  { id: 'BLR-01', name: 'Indiranagar Metro', city: 'Bengaluru', lat: 12.9784, lng: 77.6408, available: 1, capacity: 14 },
-  { id: 'BLR-02', name: 'Cubbon Park East', city: 'Bengaluru', lat: 12.9741, lng: 77.6065, available: 15, capacity: 22 }
-];
-const HISTORY = [{ bike: 'VS-2048', date: 'Today, 08:42', duration: '18 min', fare: 24, status: 'Completed' }, { bike: 'VS-1842', date: '18 Aug, 17:20', duration: '26 min', fare: 31, status: 'Bounty Applied' }, { bike: 'VS-0775', date: '16 Aug, 09:15', duration: '12 min', fare: 18, status: 'Completed' }];
 const rupees = (value) => `₹${Number(value).toFixed(2)}`;
 const stationIcon = (available, bounty) => L.divIcon({ className: 'velo-marker-shell', html: `<div class="velo-marker ${bounty ? 'is-bounty' : ''}">🚲<b>${available}</b></div>`, iconSize: [48, 48], iconAnchor: [24, 42], popupAnchor: [0, -42] });
+const userLocationIcon = L.divIcon({ className: 'user-location-marker', html: '<div class="location-dot">📍</div>', iconSize: [32, 32], iconAnchor: [16, 16] });
 
-function FlyTo({ center }) { const map = useMap(); useEffect(() => { map.flyTo(center, 13, { duration: 0.9 }); }, [center, map]); return null; }
+function MapControls({ onMyLocation }) {
+  return (
+    <div className="map-controls-container">
+      <button className="location-button" onClick={onMyLocation} title="Go to my location">
+        📍
+      </button>
+    </div>
+  );
+}
+
+function MapReady({ center }) {
+  const map = useMap();
+
+  useEffect(() => {
+    map.invalidateSize();
+    const resizeObserver = new ResizeObserver(() => map.invalidateSize());
+    resizeObserver.observe(map.getContainer());
+    const resizeTimer = setTimeout(() => map.invalidateSize(), 100);
+
+    return () => {
+      resizeObserver.disconnect();
+      clearTimeout(resizeTimer);
+    };
+  }, [map]);
+
+  useEffect(() => { map.flyTo(center, 13, { duration: 0.9 }); }, [center, map]);
+
+  return null;
+}
 
 export default function Home() {
   const navigate = useNavigate();
-  const { logout } = useAuth();
-  const [city, setCity] = useState('Mumbai'); const [stations, setStations] = useState(STATIONS); const [wallet, setWallet] = useState(120.5); const [ride, setRide] = useState(null); const [seconds, setSeconds] = useState(0); const [online, setOnline] = useState(navigator.onLine); const [history, setHistory] = useState(HISTORY); const [panel, setPanel] = useState(''); const [toast, setToast] = useState(''); const [customAmount, setCustomAmount] = useState(''); const [isLoggingOut, setIsLoggingOut] = useState(false); const [issue, setIssue] = useState({ asset: '', type: 'Solenoid Lock Glitch', notes: '' });
-  const visibleStations = useMemo(() => stations.filter((station) => station.city === city), [city, stations]);
-  const fare = ride ? 10 + seconds * 0.45 : 0; const duration = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+  const { user, logout } = useAuth();
+  const mapRef = useRef(null);
+  const [city, setCity] = useState('Mumbai');
+  const [stations, setStations] = useState([]);
+  const [userProfile, setUserProfile] = useState(null);
+  const [wallet, setWallet] = useState(0);
+  const [ride, setRide] = useState(null);
+  const [seconds, setSeconds] = useState(0);
+  const [online, setOnline] = useState(navigator.onLine);
+  const [history, setHistory] = useState([]);
+  const [panel, setPanel] = useState('');
+  const [toast, setToast] = useState('');
+  const [customAmount, setCustomAmount] = useState('');
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [issue, setIssue] = useState({ asset: '', type: 'Solenoid Lock Glitch', notes: '' });
+  const [isLoadingStations, setIsLoadingStations] = useState(false);
+  const [userLocation, setUserLocation] = useState(null);
+  const [isGettingLocation, setIsGettingLocation] = useState(false);
+  const [trackingRoute, setTrackingRoute] = useState([]);
+  
+  // Fetch user profile on mount
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      try {
+        const profile = await getUserProfile();
+        if (profile) {
+          setUserProfile(profile);
+          setWallet(profile.wallet_balance || 0);
+        }
+      } catch (error) {
+        console.error('Failed to fetch user profile:', error);
+      }
+    };
+    void fetchUserProfile();
+  }, []);
+
+  // Fetch stations when city changes
+  useEffect(() => {
+    const fetchStations = async () => {
+      setIsLoadingStations(true);
+      try {
+        const stationsData = await getStations(city);
+        setStations(stationsData);
+      } catch (error) {
+        console.error('Failed to fetch stations:', error);
+        setStations([]);
+      } finally {
+        setIsLoadingStations(false);
+      }
+    };
+    void fetchStations();
+  }, [city]);
+
+  const visibleStations = useMemo(() => stations, [stations]);
+  const fare = ride ? 10 + seconds * 0.45 : 0;
+  const duration = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+  
+  // Handle "My Location" button click
+  const handleMyLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setToast('Geolocation is not supported by your browser.');
+      return;
+    }
+
+    if (isGettingLocation) return;
+    setIsGettingLocation(true);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setUserLocation([latitude, longitude]);
+        if (mapRef.current) {
+          mapRef.current.flyTo([latitude, longitude], 15, { duration: 0.9 });
+        }
+        setToast('Location found! 📍');
+        setIsGettingLocation(false);
+      },
+      (error) => {
+        let message = 'Unable to get your location.';
+        if (error.code === error.PERMISSION_DENIED) {
+          message = 'Location permission denied. Please enable it in your browser settings.';
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          message = 'Location information is unavailable.';
+        } else if (error.code === error.TIMEOUT) {
+          message = 'Location request timed out.';
+        }
+        setToast(message);
+        setIsGettingLocation(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }, [isGettingLocation]);
+
+  // Track location during active ride
+  useEffect(() => {
+    if (!ride || !navigator.geolocation) return;
+
+    let watchId;
+    const startTracking = () => {
+      watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          const newLocation = [latitude, longitude];
+          setUserLocation(newLocation);
+          setTrackingRoute((prev) => [...prev, newLocation]);
+        },
+        (error) => {
+          console.error('Tracking error:', error);
+        },
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+      );
+    };
+
+    startTracking();
+
+    return () => {
+      if (watchId) navigator.geolocation.clearWatch(watchId);
+    };
+  }, [ride]);
+
+  // Reset tracking when ride ends
+  useEffect(() => {
+    if (!ride) {
+      setTrackingRoute([]);
+    }
+  }, [ride]);
+  
   useEffect(() => { if (!ride) return undefined; const timer = setInterval(() => setSeconds((value) => value + 1), 1000); return () => clearInterval(timer); }, [ride]);
   useEffect(() => { const onOnline = () => { setOnline(true); void syncOfflineRides(); setToast('Back online — cached updates are syncing.'); }; const onOffline = () => setOnline(false); window.addEventListener('online', onOnline); window.addEventListener('offline', onOffline); return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); }; }, []);
-  useEffect(() => { const telemetry = setInterval(() => setStations((current) => current.map((station) => ({ ...station, available: Math.max(0, Math.min(station.capacity, station.available + (Math.random() > .6 ? (Math.random() > .5 ? 1 : -1) : 0))) }))), 7000); return () => clearInterval(telemetry); }, []);
   useEffect(() => { if (!toast) return undefined; const timer = setTimeout(() => setToast(''), 3500); return () => clearTimeout(timer); }, [toast]);
+  
   const startRide = useCallback((station) => { if (!station || station.available < 1) return setToast('No cycles are currently available at this station.'); const bikeId = `VS-${Math.floor(1000 + Math.random() * 8999)}`; setStations((all) => all.map((item) => item.id === station.id ? { ...item, available: item.available - 1 } : item)); setRide({ bikeId, station, lat: station.lat, lng: station.lng }); setSeconds(0); setToast(`${bikeId} unlocked. Have a great ride!`); }, []);
+  
   const endRide = async () => { if (!ride) return; const payload = { tripId: ride.bikeId, bikeId: ride.bikeId, lat: ride.lat, lng: ride.lng, simulatedOffline: !online }; const bounty = ride.station.available / ride.station.capacity < .2; const finalFare = Math.max(0, Number(fare.toFixed(2)) - (bounty ? 5 : 0)); try { const result = await endRideWithOfflineFallback(payload); setToast(result.offline ? 'Cycle locked locally. It will sync automatically.' : 'Ride ended and cycle locked securely.'); } catch { localStorage.setItem('offlineQueue', JSON.stringify([...JSON.parse(localStorage.getItem('offlineQueue') || '[]'), payload])); setToast('Ride saved locally for background sync.'); } setWallet((value) => value - finalFare); setHistory((all) => [{ bike: ride.bikeId, date: 'Just now', duration, fare: finalFare, status: bounty ? 'Bounty Applied' : 'Completed' }, ...all]); setRide(null); };
+  
   const topUp = (amount) => {
     const value = Number(amount);
     if (!Number.isFinite(value) || value <= 0) {
@@ -43,14 +188,59 @@ export default function Home() {
     setPanel('');
     navigate('/payment', { state: { amount: value } });
   };
+  
   const submitIssue = (event) => { event.preventDefault(); setPanel(''); setIssue({ asset: '', type: 'Solenoid Lock Glitch', notes: '' }); setToast('Issue reported. Our field team has been notified.'); };
   const handleLogout = async () => { if (isLoggingOut) return; setIsLoggingOut(true); setToast('Logging out...'); try { await logout(); } finally { window.location.replace('/'); } };
-  return <main className="velo-app"><MapContainer center={CITIES[city]} zoom={13} className="velo-map" zoomControl={false}><FlyTo center={CITIES[city]} /><TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />{visibleStations.map((station) => { const bounty = station.available / station.capacity < .2; return <Marker key={station.id} position={[station.lat, station.lng]} icon={stationIcon(station.available, bounty)}><Popup><div className="station-popup"><span>{station.id}</span><h3>{station.name}</h3><p><b>{station.available}</b> cycles · {station.capacity} docks</p>{bounty && <div className="bounty-tag">⚡ ₹5 Rebalancing Bounty</div>}<button className="button button-primary" onClick={() => startRide(station)} disabled={!station.available}>Unlock cycle</button></div></Popup></Marker>; })}</MapContainer>
+  
+  return <main className="velo-app"><MapContainer ref={mapRef} center={CITIES[city]} zoom={13} className="velo-map" zoomControl={false}><MapReady center={CITIES[city]} /><TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />{userLocation && <Marker position={userLocation} icon={userLocationIcon}><Popup>Your current location</Popup></Marker>}{trackingRoute.length > 0 && <Polyline positions={trackingRoute} color="#007bff" weight={3} opacity={0.8} />}{visibleStations.map((station) => { const bounty = station.available / station.capacity < .2; return <Marker key={station.id} position={[station.lat, station.lng]} icon={stationIcon(station.available, bounty)}><Popup><div className="station-popup"><span>{station.id}</span><h3>{station.name}</h3><p><b>{station.available}</b> cycles · {station.capacity} docks</p>{bounty && <div className="bounty-tag">⚡ ₹5 Rebalancing Bounty</div>}<button className="button button-primary" onClick={() => navigate(`/station/${station.id}`)}>View station & rent</button></div></Popup></Marker>; })}<MapControls onMyLocation={handleMyLocation} /></MapContainer>
     <header className="velo-nav glass-panel"><div className="nav-left"><button className="icon-button" onClick={() => setPanel('profile')} aria-label="Open profile">👤</button><label className="city-select">📍<select value={city} onChange={(event) => setCity(event.target.value)}>{Object.keys(CITIES).map((name) => <option key={name}>{name}</option>)}</select></label></div><div className="nav-right"><div className="wallet-pill"><span>Wallet</span><b>{rupees(wallet)}</b><button onClick={() => setPanel('topup')}>+ Top up</button></div><button className="icon-button" onClick={() => setPanel('report')} aria-label="Report an issue">⚠️</button></div></header>
     <button className={`network-chip glass-panel ${online ? 'online' : 'offline'}`} onClick={() => setPanel('simulator')}>{online ? '● 4G / LTE Online' : '● Offline dead-zone'}</button>
     <section className={`ride-drawer ${ride ? 'is-riding' : ''}`}>{ride ? <><div className="ride-status"><i />Ride in progress</div><div className="ride-metrics"><div><span>Bicycle</span><b>{ride.bikeId}</b></div><div><span>Duration</span><b>{duration}</b></div><div><span>Live fare</span><b>{rupees(fare)}</b></div></div><button className="button button-danger" onClick={endRide}>🔒 End ride & lock</button></> : <><div><p className="drawer-kicker">Ready when you are</p><h1>Find your next ride</h1><p>Tap a station on the map or scan a cycle code.</p></div><button className="button button-primary scan-button" onClick={() => startRide(visibleStations.find((station) => station.available > 0))}>📷 Scan QR to rent</button></>}</section>
-    {panel === 'profile' && <div className="modal-layer"><aside className="profile-drawer glass-panel"><button className="close-button" onClick={() => setPanel('')}>×</button><div className="profile-hero"><div className="avatar">🚴</div><div><p>Good to see you</p><h2>Rahul Sharma</h2><em>✓ KYC verified</em></div></div><div className="identity-grid"><div><span>Email</span><b>rahul@velosync.in</b></div><div><span>Phone</span><b>+91 98765 43210</b></div><div><span>Role</span><b>Commuter</b></div><div><span>Wallet</span><b>{rupees(wallet)}</b></div></div><div className="stat-grid"><div><b>{history.length + 24}</b><span>Total trips</span></div><div><b>18.6 kg</b><span>CO₂ saved</span></div></div><div className="ledger-head"><h3>Ride history</h3><span>Recent trips</span></div><div className="ride-ledger">{history.map((item, index) => <article key={`${item.bike}-${index}`}><div><b>{item.bike}</b><span>{item.date} · {item.duration}</span></div><div><strong>{rupees(item.fare)}</strong><em className={item.status === 'Bounty Applied' ? 'bounty-status' : ''}>{item.status}</em></div></article>)}</div><div className="profile-actions"><button className="button button-primary" onClick={() => setPanel('topup')}>Top-up wallet</button><button className="button button-secondary" onClick={() => setToast('Referral code VS-RAHUL copied!')}>Refer & earn</button><button className="logout-button" onClick={handleLogout} disabled={isLoggingOut}>{isLoggingOut ? 'Logging out...' : 'Logout'}</button></div></aside></div>}
+    {panel === 'profile' && <div className="modal-layer"><aside className="profile-drawer glass-panel"><button className="close-button" onClick={() => setPanel('')}>×</button><div className="profile-hero"><div className="avatar">🚴</div><div><p>Good to see you</p><h2>{userProfile?.name || 'User'}</h2><em>✓ KYC verified</em></div></div><div className="identity-grid"><div><span>Email</span><b>{userProfile?.email || 'N/A'}</b></div><div><span>Phone</span><b>{userProfile?.phone || 'Not provided'}</b></div><div><span>Role</span><b>{userProfile?.role || 'Commuter'}</b></div><div><span>Wallet</span><b>{rupees(wallet)}</b></div></div><div className="stat-grid"><div><b>{history.length}</b><span>Total trips</span></div><div><b>18.6 kg</b><span>CO₂ saved</span></div></div><div className="ledger-head"><h3>Ride history</h3><span>Recent trips</span></div><div className="ride-ledger">{history.length === 0 ? <p style={{textAlign: 'center', color: '#666'}}>No trips yet</p> : history.map((item, index) => <article key={`${item.bike}-${index}`}><div><b>{item.bike}</b><span>{item.date} · {item.duration}</span></div><div><strong>{rupees(item.fare)}</strong><em className={item.status === 'Bounty Applied' ? 'bounty-status' : ''}>{item.status}</em></div></article>)}</div><div className="profile-actions"><button className="button button-primary" onClick={() => setPanel('topup')}>Top-up wallet</button><button className="button button-secondary" onClick={() => setToast('Referral code VS-' + (userProfile?.id?.slice(0, 5) || 'USER') + ' copied!')}>Refer & earn</button><button className="logout-button" onClick={handleLogout} disabled={isLoggingOut}>{isLoggingOut ? 'Logging out...' : 'Logout'}</button></div></aside></div>}
     {panel === 'simulator' && <div className="modal-layer modal-bottom"><section className="simulator-panel"><button className="close-button" onClick={() => setPanel('')}>×</button><p className="drawer-kicker">Developer tools</p><h2>IoT hardware simulator</h2><p>Simulate connectivity changes and verify background ride sync.</p><div className="sim-toggle"><button className={online ? 'selected' : ''} onClick={() => setOnline(true)}>🟢 4G/LTE online</button><button className={!online ? 'selected offline-button' : ''} onClick={() => setOnline(false)}>🔴 Offline dead-zone</button></div><div className="sim-info"><span>BLE fallback</span><b>{online ? 'Standby' : 'Ready to lock locally'}</b></div></section></div>}
     {panel === 'topup' && <div className="modal-layer"><section className="dialog-card"><button className="close-button" onClick={() => setPanel('')}>×</button><p className="drawer-kicker">Wallet</p><h2>Top-up balance</h2><p>Choose an amount and continue to payment method selection.</p><div className="amount-pills">{[50, 100, 200, 500].map((amount) => <button key={amount} onClick={() => topUp(amount)}>+{rupees(amount)}</button>)}</div><input className="amount-input" value={customAmount} onChange={(event) => setCustomAmount(event.target.value.replace(/[^0-9.]/g, ''))} placeholder="Custom amount" inputMode="decimal" /><button className="button button-primary full-width" onClick={() => { const value = Number(customAmount); if (!Number.isFinite(value) || value <= 0) { setToast('Enter an amount greater than ₹0 before continuing.'); return; } setPanel(''); navigate('/payment', { state: { amount: value } }); }}>Continue to payment</button></section></div>}
-    {panel === 'report' && <div className="modal-layer"><form className="dialog-card report-form" onSubmit={submitIssue}><button type="button" className="close-button" onClick={() => setPanel('')}>×</button><p className="drawer-kicker">Maintenance</p><h2>Report an issue</h2><input required value={issue.asset} onChange={(event) => setIssue({ ...issue, asset: event.target.value })} placeholder="Station or bicycle ID" /><select value={issue.type} onChange={(event) => setIssue({ ...issue, type: event.target.value })}>{['Solenoid Lock Glitch', 'Flat Tyre', 'Vandalism', 'Geofence Error'].map((type) => <option key={type}>{type}</option>)}</select><textarea value={issue.notes} onChange={(event) => setIssue({ ...issue, notes: event.target.value })} placeholder="Describe what happened (optional)" rows="4" /><button className="button button-primary" type="submit">Submit report</button></form></div>}{toast && <div className="velo-toast">{toast}</div>}</main>;
+    {panel === 'report' && <div className="modal-layer"><form className="dialog-card report-form" onSubmit={submitIssue}><button type="button" className="close-button" onClick={() => setPanel('')}>×</button><p className="drawer-kicker">Maintenance</p><h2>Report an issue</h2><input required value={issue.asset} onChange={(event) => setIssue({ ...issue, asset: event.target.value })} placeholder="Station or bicycle ID" /><select value={issue.type} onChange={(event) => setIssue({ ...issue, type: event.target.value })}>{['Solenoid Lock Glitch', 'Flat Tyre', 'Vandalism', 'Geofence Error'].map((type) => <option key={type}>{type}</option>)}</select><textarea value={issue.notes} onChange={(event) => setIssue({ ...issue, notes: event.target.value })} placeholder="Describe what happened (optional)" rows="4" /><button className="button button-primary" type="submit">Submit report</button></form></div>}{toast && <div className="velo-toast">{toast}</div>}
+    
+    <style>{`
+      .map-controls-container {
+        position: absolute;
+        bottom: 120px;
+        right: 10px;
+        z-index: 400;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .location-button {
+        width: 44px;
+        height: 44px;
+        border-radius: 4px;
+        background: white;
+        border: 1px solid #ddd;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        cursor: pointer;
+        font-size: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+        padding: 0;
+      }
+
+      .location-button:hover {
+        background: #f5f5f5;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+      }
+
+      .location-button:active {
+        transform: scale(0.95);
+      }
+
+      .location-dot {
+        font-size: 16px;
+        display: block;
+      }
+    `}</style>
+  </main>;
 }

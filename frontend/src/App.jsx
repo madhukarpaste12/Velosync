@@ -3,6 +3,7 @@ import Signup from './pages/SignUp';
 import SignIn from './pages/SignIn';
 import Start from './pages/Start';
 import Home from './pages/Home';
+import Station from './pages/Station';
 import IoTSimulator from './pages/IoTSimulator';
 import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
@@ -23,6 +24,7 @@ export default function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+          <Route path="/station/:stationId" element={<ProtectedRoute><Station /></ProtectedRoute>} />
           <Route path="/payment" element={<ProtectedRoute><Payment /></ProtectedRoute>} />
           <Route path="/admin/iot-simulator" element={<ProtectedRoute><IoTSimulator /></ProtectedRoute>} />
         </Routes>

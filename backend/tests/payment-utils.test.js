@@ -20,6 +20,8 @@ test('payment method aliases resolve to supported choices', () => {
   assert.equal(normalizePaymentMethod('upi'), 'UPI');
   assert.equal(normalizePaymentMethod('credit card'), 'Credit/Debit Card');
   assert.equal(normalizePaymentMethod('net banking'), 'Net Banking');
+  assert.equal(normalizePaymentMethod('demo wallet'), 'Demo Wallet');
+  assert.equal(PAYMENT_METHODS.includes('Demo Wallet'), true);
   assert.equal(PAYMENT_METHODS.includes(normalizePaymentMethod('UPI')), true);
 });
 

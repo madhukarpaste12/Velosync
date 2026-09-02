@@ -22,9 +22,9 @@ $env:Path += ';C:\Program Files\PostgreSQL\18\bin'
 
 Seed data is for development only. It creates stations and bicycles, but no demo password or real payment credentials.
 
-Required backend variables are documented in `backend/.env.example`: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM`. The OTP is stored as a hash in `email_otps`, expires after five minutes, and is invalidated after use with a per-code attempt limit and resend cooldown.
+Required backend variables are documented in `backend/.env.example`: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `EMAIL_USER`, and `EMAIL_APP_PASSWORD`. The OTP is stored as a hash in `email_otps`, expires after five minutes, and is invalidated after use with a per-code attempt limit and resend cooldown.
 
-The app uses Gmail SMTP via Nodemailer for signup verification and password reset OTP delivery. The email content is generated server-side and never exposed to the frontend. For Gmail, use a 16-character app password, not the normal account password. In Google Account settings, enable 2-Step Verification and create an App Password for the backend. Set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_SECURE=false`, and `SMTP_PASSWORD` to the App Password value. The sender should be `SMTP_FROM` or the same Gmail address as `SMTP_USER`.
+The app uses Gmail SMTP via Nodemailer for signup verification and password reset OTP delivery. The email content is generated server-side and never exposed to the frontend.
 
 ## Relationships
 

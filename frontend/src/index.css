@@ -340,8 +340,8 @@ input { padding: 12px; border: 1px solid #ccc; border-radius: 6px; }
 .test-otp strong { font-size: 1.25rem; letter-spacing: 0.12em; }
 
 /* VeloSync map experience */
-.velo-app { --green:#10b981; --blue:#2563eb; --ink:#0f172a; position:relative; height:100dvh; overflow:hidden; color:var(--ink); background:#eaf1f7; }
-.velo-map { position:absolute; inset:0; height:100%; width:100%; }
+.velo-app { --green:#10b981; --blue:#2563eb; --ink:#0f172a; position:relative; height:100dvh; min-height:100vh; overflow:hidden; color:var(--ink); background:#eaf1f7; }
+.velo-map { position:absolute; inset:0; z-index:0; height:100%; min-height:100%; width:100%; }
 .glass-panel { background:rgba(255,255,255,.82); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,.72); box-shadow:0 10px 32px rgba(15,23,42,.15); }
 .velo-nav { position:absolute; z-index:500; top:max(12px, env(safe-area-inset-top)); left:12px; right:12px; min-height:58px; padding:8px; border-radius:18px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .nav-left,.nav-right { display:flex; align-items:center; gap:7px; }.icon-button { width:42px; height:42px; border:0; border-radius:13px; background:#fff; cursor:pointer; font-size:18px; transition:transform .2s; }.icon-button:hover{transform:translateY(-2px)}

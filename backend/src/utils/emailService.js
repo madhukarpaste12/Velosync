@@ -1,65 +1,21 @@
-const path = require('path');
 const nodemailer = require('nodemailer');
-require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
-
-const normalizeBoolean = (value) => {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
-    if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
-  }
-  return false;
-};
 
 const getSmtpConfig = () => {
-  const host = process.env.SMTP_HOST || process.env.EMAIL_HOST || 'smtp.gmail.com';
-  const port = Number(process.env.SMTP_PORT || process.env.EMAIL_PORT || 587);
-  const secure = normalizeBoolean(process.env.SMTP_SECURE ?? process.env.EMAIL_SECURE ?? (port === 465));
-  const user = process.env.SMTP_USER || process.env.EMAIL_USER || '';
-  const password = process.env.SMTP_PASSWORD || process.env.EMAIL_APP_PASSWORD || '';
-  const from = process.env.SMTP_FROM || process.env.EMAIL_FROM || user || 'noreply@localhost';
+  const password = process.env.SMTP_PASSWORD || process.env.EMAIL_APP_PASSWORD;
 
   return {
-    host,
-    port,
-    secure,
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: process.env.SMTP_SECURE === 'true',
     auth: {
-      user,
-      pass: password
+      user: process.env.SMTP_USER || process.env.EMAIL_USER,
+      pass: password ? password.replace(/\s+/g, '') : password
     },
-    from
+    from: process.env.SMTP_FROM || process.env.EMAIL_USER
   };
 };
 
-const createTransporter = () => {
-  const config = getSmtpConfig();
-  const missing = [];
-
-  if (!config.host) missing.push('SMTP_HOST');
-  if (!config.auth.user) missing.push('SMTP_USER');
-  if (!config.auth.pass) missing.push('SMTP_PASSWORD');
-
-  if (missing.length) {
-    console.warn(`[SMTP] Configuration missing: ${missing.join(', ')}. OTP emails will fail until they are set in backend/.env.`);
-    return null;
-  }
-
-  return nodemailer.createTransport({
-    host: config.host,
-    port: config.port,
-    secure: config.secure,
-    auth: {
-      user: config.auth.user,
-      pass: config.auth.pass
-    },
-    tls: {
-      rejectUnauthorized: false
-    }
-  });
-};
-
-const transporter = createTransporter();
+const transporter = nodemailer.createTransport(getSmtpConfig());
 
 const getPurposeConfig = (purpose) => {
   if (purpose === 'FORGOT_PASSWORD') {
@@ -103,50 +59,39 @@ const buildOtpEmail = ({ purpose, otp, expiresMinutes = 5, supportEmail = 'hello
   };
 };
 
-const verifySmtpConnection = async () => {
-  const activeTransporter = transporter || createTransporter();
-  if (!activeTransporter) {
-    console.warn('[SMTP] SMTP transport is not configured. Skipping connection verification.');
-    return false;
-  }
-
-  try {
-    await activeTransporter.verify();
-    console.log(`[SMTP] Connection verified successfully for ${getSmtpConfig().host}:${getSmtpConfig().port}.`);
-    return true;
-  } catch (error) {
-    console.error('[SMTP] Connection verification failed:', error.message);
-    return false;
-  }
-};
-
 const sendOtpEmail = async ({ to, otp, purpose, expiresMinutes = 5 }) => {
-  const config = getSmtpConfig();
-  const activeTransporter = transporter || createTransporter();
-
-  if (!config.auth.user || !config.auth.pass) {
-    throw new Error('Missing SMTP configuration. Set SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASSWORD, and SMTP_FROM in backend/.env.');
-  }
-
-  if (!activeTransporter) {
-    throw new Error('SMTP transporter could not be created. Check your SMTP configuration in backend/.env.');
+  const smtpUser = process.env.SMTP_USER || process.env.EMAIL_USER;
+  const smtpPass = (process.env.SMTP_PASSWORD || process.env.EMAIL_APP_PASSWORD || '').replace(/\s+/g, '');
+  
+  if (!smtpUser || !smtpPass) {
+    throw new Error('Missing SMTP credentials. Set SMTP_USER and SMTP_PASSWORD in backend/.env.');
   }
 
   const mail = buildOtpEmail({ purpose, otp, expiresMinutes });
 
+  await transporter.sendMail({
+    from: `VeloSync <${smtpUser}>`,
+    to,
+    subject: mail.subject,
+    text: mail.text,
+    html: mail.html
+  });
+
+  return true;
+};
+
+const verifySmtpConnection = async () => {
   try {
-    await activeTransporter.sendMail({
-      from: config.from,
-      to,
-      subject: mail.subject,
-      text: mail.text,
-      html: mail.html
-    });
-    console.log(`[SMTP] OTP email sent successfully for ${to} (${purpose}).`);
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
+      console.log('[SMTP] Not configured - using environment fallback');
+      return false;
+    }
+    await transporter.verify();
+    console.log('[SMTP] Connection verified successfully');
     return true;
   } catch (error) {
-    console.error('[SMTP] OTP email sending failed:', { to, purpose, error: error.message });
-    throw error;
+    console.warn('[SMTP] Connection failed:', error.message);
+    return false;
   }
 };
 

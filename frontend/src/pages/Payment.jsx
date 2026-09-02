@@ -1,13 +1,15 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { createWalletTopUp, getWalletGatewayStatus } from '../services/api';
+import { createWalletTopUp, getWalletGatewayStatus, getUserProfile } from '../services/api';
+import { useAuth } from '../context/useAuth';
 
-const methods = ['UPI', 'Credit/Debit Card', 'Net Banking'];
+const methods = ['UPI', 'Credit/Debit Card', 'Net Banking', 'Demo Wallet'];
 const toCurrency = (value) => `₹${Number(value).toFixed(2)}`;
 
 export default function Payment() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAuth();
   const initialAmount = useMemo(() => {
     const value = Number(location.state?.amount ?? '');
     return Number.isFinite(value) && value > 0 ? value : 0;
@@ -19,8 +21,11 @@ export default function Payment() {
   const [card, setCard] = useState({ name: '', number: '', expiry: '', cvv: '' });
   const [error, setError] = useState('');
   const [state, setState] = useState('form');
+  const [processingStep, setProcessingStep] = useState('');
   const [gatewayStatus, setGatewayStatus] = useState({ configured: false, provider: 'none', details: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [previousBalance, setPreviousBalance] = useState(0);
+  const [newBalance, setNewBalance] = useState(0);
 
   useEffect(() => {
     const loadGatewayStatus = async () => {
@@ -47,6 +52,9 @@ export default function Payment() {
       throw new Error('Amount must be greater than ₹0.');
     }
 
+    // Skip validation for Demo Wallet
+    if (method === 'Demo Wallet') return;
+
     if (method === 'UPI' && !/^[\w.-]+@[\w.-]+$/.test(value.trim())) {
       throw new Error('Enter a valid UPI ID, for example name@bank.');
     }
@@ -63,14 +71,38 @@ export default function Payment() {
     }
   };
 
+  const simulatePaymentProcessing = async () => {
+    const steps = [
+      'Initializing payment...',
+      'Processing transaction...',
+      'Verifying payment...',
+      'Payment successful'
+    ];
+
+    for (const step of steps) {
+      setProcessingStep(step);
+      await new Promise(resolve => setTimeout(resolve, 1200));
+    }
+  };
+
   const submit = async (event) => {
     event.preventDefault();
     setError('');
 
     try {
       validateForm();
+
+      // Get current user profile for previous balance
+      const profile = await getUserProfile();
+      if (profile) {
+        setPreviousBalance(profile.wallet_balance || 0);
+      }
+
       setState('processing');
       setIsSubmitting(true);
+
+      // Simulate payment processing
+      await simulatePaymentProcessing();
 
       const numericAmount = Number(amount || initialAmount || 0);
       const paymentPayload = {
@@ -90,6 +122,10 @@ export default function Payment() {
         throw new Error(response.message || 'Payment could not be completed.');
       }
 
+      // Calculate new balance
+      const calculatedNewBalance = previousBalance + numericAmount;
+      setNewBalance(calculatedNewBalance);
+
       setState('success');
       setIsSubmitting(false);
     } catch (submitError) {
@@ -105,21 +141,44 @@ export default function Payment() {
     navigate('/home');
   };
 
+  if (state === 'processing') {
+    return (
+      <div className="payment-shell">
+        <section className="payment-result processing-result">
+          <div className="processing-spinner">
+            <div className="spinner"></div>
+          </div>
+          <p className="eyebrow">Processing your payment</p>
+          <h1>{processingStep || 'Please wait...'}</h1>
+          <p>Your transaction is being processed securely.</p>
+          <div className="processing-progress">
+            <div className="progress-step">Initializing payment...</div>
+            <div className="progress-step">Processing transaction...</div>
+            <div className="progress-step">Verifying payment...</div>
+            <div className="progress-step">Payment successful</div>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   if (state === 'success') {
     return (
       <div className="payment-shell">
         <section className="payment-result success-result">
           <span className="result-icon">✓</span>
-          <p className="eyebrow">Wallet top-up</p>
-          <h1>Payment request received</h1>
-          <p>No real payment gateway is configured yet, so this step remains intentionally protected and no fake charge was completed.</p>
+          <p className="eyebrow">Wallet top-up successful</p>
+          <h1>Payment completed</h1>
+          <p>Your wallet has been updated with the top-up amount.</p>
           <div className="receipt">
-            <span>Amount</span>
-            <strong>{toCurrency(amount || initialAmount || 0)}</strong>
-            <span>Selected method</span>
+            <span>Previous balance</span>
+            <strong>{toCurrency(previousBalance)}</strong>
+            <span>Top-up amount</span>
+            <strong className="highlight-amount">+ {toCurrency(amount || initialAmount || 0)}</strong>
+            <span>New balance</span>
+            <strong className="total-balance">{toCurrency(newBalance || (previousBalance + (amount || initialAmount || 0)))}</strong>
+            <span>Payment method</span>
             <strong>{method}</strong>
-            <span>Gateway status</span>
-            <strong>{gatewayStatus.configured ? gatewayStatus.provider : 'Not configured'}</strong>
           </div>
           <button className="btn btn-primary full-width" onClick={() => navigate('/home')}>Return to dashboard</button>
         </section>
@@ -148,20 +207,20 @@ export default function Payment() {
     <div className="payment-shell">
       <header className="payment-header">
         <Link to="/home" className="back-link">← Dashboard</Link>
-        <span className="secure-label">🔒 {gatewayStatus.configured ? 'Secure checkout' : 'Gateway not configured'}</span>
+        <span className="secure-label">🔒 {gatewayStatus.configured ? 'Secure checkout' : 'Demo Payment'}</span>
       </header>
       <main className="payment-layout">
         <section className="payment-panel">
           <p className="eyebrow">VeloSync wallet</p>
           <h1>Add balance</h1>
-          <p className="form-intro">Select a payment method and continue to the existing wallet top-up flow.</p>
+          <p className="form-intro">Select a payment method and complete your transaction.</p>
           <div className="summary-row">
             <span>Amount</span>
             <strong>{toCurrency(amount || initialAmount || 0)}</strong>
           </div>
           <div className="summary-row muted-row">
             <span>Gateway</span>
-            <span>{gatewayStatus.configured ? gatewayStatus.provider : 'Not configured'}</span>
+            <span>{gatewayStatus.configured ? gatewayStatus.provider : 'Demo Mode'}</span>
           </div>
           <div className="summary-total">
             <span>Total</span>
@@ -217,6 +276,10 @@ export default function Payment() {
                   </div>
                 </div>
               </div>
+            ) : method === 'Demo Wallet' ? (
+              <div className="demo-wallet-info">
+                <p>This is a demonstration transaction. The balance will be updated in your wallet immediately upon completion.</p>
+              </div>
             ) : (
               <div className="input-group">
                 <label htmlFor="payment-detail">{method === 'UPI' ? 'UPI ID' : 'Bank / account name'}</label>
@@ -227,12 +290,10 @@ export default function Payment() {
             {error && <div className="error-message">{error}</div>}
 
             <button className="btn btn-primary full-width" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Processing...' : gatewayStatus.configured ? 'Pay now' : 'Continue to gateway setup'}
+              {isSubmitting ? 'Processing...' : 'Continue to payment'}
             </button>
             <p className="demo-note">
-              {gatewayStatus.configured
-                ? 'Sensitive payment data is not stored in the app database.'
-                : 'No real gateway is configured. The UI is ready to integrate with a provider, but no payment is completed until a real gateway is set up.'}
+              This is a demonstration payment flow. No real charges will be made. The wallet balance will update upon successful completion.
             </p>
           </form>
         </section>

@@ -1,4 +1,4 @@
-const PAYMENT_METHODS = ['UPI', 'Credit/Debit Card', 'Net Banking'];
+const PAYMENT_METHODS = ['UPI', 'Credit/Debit Card', 'Net Banking', 'Demo Wallet'];
 
 const normalizePaymentMethod = (value = '') => {
   const input = String(value || '').trim().toLowerCase();
@@ -7,6 +7,7 @@ const normalizePaymentMethod = (value = '') => {
   if (['upi', 'upi id', 'upi-id'].includes(input)) return 'UPI';
   if (['credit card', 'debit card', 'card', 'credit/debit card', 'credit-debit card'].includes(input)) return 'Credit/Debit Card';
   if (['net banking', 'netbanking', 'internet banking'].includes(input)) return 'Net Banking';
+  if (['demo wallet', 'demo', 'test wallet'].includes(input)) return 'Demo Wallet';
 
   return PAYMENT_METHODS.find((method) => method.toLowerCase() === input) || '';
 };

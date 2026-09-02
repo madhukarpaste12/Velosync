@@ -1,5 +1,72 @@
 const pool = require('../config/db');
 
+const getStations = async (req, res, next) => {
+  try {
+    const { city } = req.query;
+    let query = `
+      SELECT 
+        id, name, city, capacity,
+        ST_Y(geom::geometry) AS lat, 
+        ST_X(geom::geometry) AS lng,
+        (SELECT COUNT(*) FROM bicycles WHERE station_id = stations.id AND is_locked = TRUE AND health = 'Good') AS available
+      FROM stations
+    `;
+    const params = [];
+    
+    if (city) {
+      query += ' WHERE LOWER(city) = LOWER($1)';
+      params.push(city);
+    }
+    
+    query += ' ORDER BY city, name';
+    
+    const result = await pool.query(query, params);
+    res.json({ success: true, stations: result.rows });
+  } catch (error) { next(error); }
+};
+
+const getStation = async (req, res, next) => {
+  try {
+    const { stationId } = req.params;
+    
+    const stationResult = await pool.query(`
+      SELECT 
+        id, name, city, capacity,
+        ST_Y(geom::geometry) AS lat, 
+        ST_X(geom::geometry) AS lng
+      FROM stations
+      WHERE id = $1
+    `, [stationId]);
+    
+    if (!stationResult.rows[0]) {
+      return res.status(404).json({ success: false, message: 'Station not found.' });
+    }
+    
+    const station = stationResult.rows[0];
+    
+    const bikesResult = await pool.query(`
+      SELECT 
+        id, battery_level, network_status, is_locked, health,
+        ST_Y(geom::geometry) AS lat, 
+        ST_X(geom::geometry) AS lng
+      FROM bicycles
+      WHERE station_id = $1 AND is_locked = TRUE AND health = 'Good'
+      ORDER BY id
+    `, [stationId]);
+    
+    const available = bikesResult.rows.length;
+    
+    res.json({ 
+      success: true, 
+      station: { 
+        ...station, 
+        available,
+        bicycles: bikesResult.rows 
+      } 
+    });
+  } catch (error) { next(error); }
+};
+
 const getBikes = async (req, res, next) => {
   try {
     const result = await pool.query(`
@@ -67,4 +134,4 @@ const updateTelemetry = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
-module.exports = { getBikes, startRide, endRide, updateTelemetry };
+module.exports = { getStations, getStation, getBikes, startRide, endRide, updateTelemetry };

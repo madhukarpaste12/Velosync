@@ -35,6 +35,10 @@ const issueOtp = async (email, purpose) => {
 
   try {
     await sendOtpEmail({ to: normalizedEmail, otp, purpose, expiresMinutes: OTP_TTL_MINUTES });
+    // Log OTP in development mode
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`\n📧 OTP for ${normalizedEmail}: ${otp}\n`);
+    }
   } catch (error) {
     await pool.query('DELETE FROM email_otps WHERE id = $1', [inserted.rows[0].id]);
     throw operationalError('Unable to send the verification code to your email. Please try again.', 500);
@@ -83,12 +87,35 @@ exports.verifyOtp = async (req, res, next) => {
     if (existingUser.rows[0]) throw operationalError('Email already registered.', 409);
 
     const user = await client.query(
-      'INSERT INTO users (name, email, password_hash, is_email_verified) VALUES ($1, $2, $3, TRUE) RETURNING id, name, email',
+      'INSERT INTO users (name, email, password_hash, is_email_verified, wallet_balance) VALUES ($1, $2, $3, TRUE, 0) RETURNING id, name, email, wallet_balance',
       [name.trim(), normalizedEmail, await bcrypt.hash(password, 12)]
     );
     await client.query('UPDATE email_otps SET consumed_at = CURRENT_TIMESTAMP WHERE id = $1', [record.rows[0].id]);
+    
+    // Issue authentication tokens for automatic login
+    const accessToken = generateAccessToken(user.rows[0]);
+    const refreshToken = generateRefreshToken(user.rows[0]);
+    await client.query(
+      "INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, CURRENT_TIMESTAMP + INTERVAL '7 days')",
+      [user.rows[0].id, refreshToken]
+    );
+    
     await client.query('COMMIT');
-    res.status(201).json({ success: true, message: 'OTP verified successfully. Account created.', user: user.rows[0] });
+    
+    // Set refresh token cookie
+    setRefreshCookie(res, refreshToken);
+    
+    res.status(201).json({ 
+      success: true, 
+      message: 'OTP verified successfully. Account created.', 
+      accessToken,
+      user: { 
+        id: user.rows[0].id, 
+        name: user.rows[0].name, 
+        email: user.rows[0].email, 
+        wallet: user.rows[0].wallet_balance 
+      }
+    });
   } catch (error) { await client.query('ROLLBACK'); next(error); } finally { client.release(); }
 };
 

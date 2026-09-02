@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/useAuth';
 import InputField from '../components/InputField';
 import { authService } from '../services/authService';
 
@@ -13,6 +14,7 @@ export default function SignUp() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const navigate = useNavigate();
+  const { loginAfterSignup } = useAuth();
 
   useEffect(() => { if (!cooldown) return undefined; const timer = window.setInterval(() => setCooldown((current) => Math.max(0, current - 1)), 1000); return () => window.clearInterval(timer); }, [cooldown]);
 
@@ -48,8 +50,15 @@ export default function SignUp() {
         setCooldown(30);
         setStatus('A verification code has been sent to your email.');
       } else {
-        await authService.verifyOtp(formData);
-        navigate('/signin', { state: { message: 'Account created. You can now sign in.' } });
+        const result = await authService.verifyOtp(formData);
+        // Automatically login after OTP verification
+        if (result.accessToken && result.user) {
+          await loginAfterSignup(result.accessToken, result.user);
+          navigate('/home');
+        } else {
+          setStatus('Account created. Redirecting to home...');
+          navigate('/home');
+        }
       }
     } catch (error) {
       setStatus(error.response?.data?.message || 'We could not complete that request. Please try again.');
