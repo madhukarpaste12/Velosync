@@ -87,7 +87,7 @@ exports.verifyOtp = async (req, res, next) => {
     if (existingUser.rows[0]) throw operationalError('Email already registered.', 409);
 
     const user = await client.query(
-      'INSERT INTO users (name, email, password_hash, is_email_verified, wallet_balance) VALUES ($1, $2, $3, TRUE, 0) RETURNING id, name, email, wallet_balance',
+      "INSERT INTO users (name, email, password_hash, role, is_email_verified, wallet_balance) VALUES ($1, $2, $3, 'user', TRUE, 0) RETURNING id, name, email, role, wallet_balance",
       [name.trim(), normalizedEmail, await bcrypt.hash(password, 12)]
     );
     await client.query('UPDATE email_otps SET consumed_at = CURRENT_TIMESTAMP WHERE id = $1', [record.rows[0].id]);
@@ -113,6 +113,7 @@ exports.verifyOtp = async (req, res, next) => {
         id: user.rows[0].id, 
         name: user.rows[0].name, 
         email: user.rows[0].email, 
+        role: user.rows[0].role,
         wallet: user.rows[0].wallet_balance 
       }
     });
@@ -171,15 +172,16 @@ exports.resetPassword = async (req, res, next) => {
 
 exports.login = async (req, res, next) => {
   try {
-    const result = await pool.query('SELECT id, name, email, password_hash, wallet_balance FROM users WHERE email = $1', [req.body.email]);
+    const result = await pool.query('SELECT id, name, email, password_hash, role, is_suspended, suspended_until, wallet_balance FROM users WHERE email = $1', [req.body.email]);
     const user = result.rows[0];
     if (!user || !(await bcrypt.compare(req.body.password, user.password_hash))) return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    if (user.is_suspended && (!user.suspended_until || new Date(user.suspended_until) > new Date())) return res.status(403).json({ success: false, message: 'Your account is temporarily suspended.' });
     const accessToken = generateAccessToken(user); const refreshToken = generateRefreshToken(user);
     await pool.query("INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, CURRENT_TIMESTAMP + INTERVAL '7 days')", [user.id, refreshToken]);
     setRefreshCookie(res, refreshToken);
-    res.json({ success: true, accessToken, user: { id: user.id, name: user.name, email: user.email, wallet: user.wallet_balance } });
+    res.json({ success: true, accessToken, user: { id: user.id, name: user.name, email: user.email, role: user.role, wallet: user.wallet_balance } });
   } catch (error) { next(error); }
 };
-exports.refresh = async (req, res) => { try { const token = req.cookies.refreshToken; const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET); const valid = await pool.query('SELECT 1 FROM refresh_tokens WHERE token = $1 AND expires_at > CURRENT_TIMESTAMP', [token]); const user = await pool.query('SELECT id, name, email FROM users WHERE id = $1', [decoded.id]); if (!valid.rows[0] || !user.rows[0]) return res.status(403).json({ success: false, message: 'Invalid refresh token' }); res.json({ success: true, accessToken: generateAccessToken(user.rows[0]) }); } catch { res.status(403).json({ success: false, message: 'Invalid or expired refresh token' }); } };
+exports.refresh = async (req, res) => { try { const token = req.cookies.refreshToken; const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET); const valid = await pool.query('SELECT 1 FROM refresh_tokens WHERE token = $1 AND expires_at > CURRENT_TIMESTAMP', [token]); const user = await pool.query('SELECT id, name, email, role FROM users WHERE id = $1', [decoded.id]); if (!valid.rows[0] || !user.rows[0]) return res.status(403).json({ success: false, message: 'Invalid refresh token' }); res.json({ success: true, accessToken: generateAccessToken(user.rows[0]) }); } catch { res.status(403).json({ success: false, message: 'Invalid or expired refresh token' }); } };
 exports.logout = async (req, res, next) => { try { if (req.cookies.refreshToken) await pool.query('DELETE FROM refresh_tokens WHERE token = $1', [req.cookies.refreshToken]); res.clearCookie('refreshToken', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/' }); res.json({ success: true, message: 'Logged out successfully' }); } catch (error) { next(error); } };
-exports.getMe = async (req, res, next) => { try { const result = await pool.query('SELECT id, name, email, wallet_balance, created_at FROM users WHERE id = $1', [req.user.id]); if (!result.rows[0]) return res.status(404).json({ success: false, message: 'User not found' }); res.json({ success: true, user: result.rows[0] }); } catch (error) { next(error); } };
+exports.getMe = async (req, res, next) => { try { const result = await pool.query('SELECT id, name, email, role, wallet_balance, created_at FROM users WHERE id = $1', [req.user.id]); if (!result.rows[0]) return res.status(404).json({ success: false, message: 'User not found' }); res.json({ success: true, user: result.rows[0] }); } catch (error) { next(error); } };

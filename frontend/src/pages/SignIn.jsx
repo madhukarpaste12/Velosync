@@ -15,7 +15,7 @@ const SignIn = () => {
   const bypassAuth = import.meta.env.VITE_BYPASS_AUTH === 'true';
 
   // Prevent logged-in users from accessing signin page
-  if (user || bypassAuth) return <Navigate to="/home" replace />;
+  if (user || bypassAuth) return <Navigate to={user?.role === 'admin' ? '/admin' : '/home'} replace />;
 
   const validate = () => {
     const newErrors = {};
@@ -39,9 +39,9 @@ const SignIn = () => {
 
     setIsProcessing(true);
     try {
-      await login(formData.email, formData.password);
+      const sessionUser = await login(formData.email, formData.password);
       // Redirect to the page they tried to visit, or default to home
-      const origin = location.state?.from?.pathname || '/home';
+      const origin = location.state?.from?.pathname || (sessionUser.role === 'admin' ? '/admin' : '/home');
       navigate(origin, { replace: true });
     } catch (err) {
       setServerError(err.message);

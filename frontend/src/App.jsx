@@ -10,6 +10,8 @@ import { AuthProvider } from './context/AuthContext';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import Payment from './pages/Payment';
+import AdminDashboard from './pages/AdminDashboard';
+import AdminRoute from './components/AdminRoute';
 import './index.css';
 
 export default function App() {
@@ -27,6 +29,7 @@ export default function App() {
           <Route path="/station/:stationId" element={<ProtectedRoute><Station /></ProtectedRoute>} />
           <Route path="/payment" element={<ProtectedRoute><Payment /></ProtectedRoute>} />
           <Route path="/admin/iot-simulator" element={<ProtectedRoute><IoTSimulator /></ProtectedRoute>} />
+          <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

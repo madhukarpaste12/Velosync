@@ -100,4 +100,15 @@ export const syncOfflineRides = async () => {
   localStorage.removeItem('offlineQueue');
 };
 
+export const getAdminDashboard = async () => (await api.get('/admin/dashboard')).data;
+export const getAdminUsers = async () => (await api.get('/admin/users')).data;
+export const suspendAdminUser = async (id, suspendedUntil) => (await api.patch(`/admin/users/${id}/suspend`, { suspendedUntil })).data;
+export const unsuspendAdminUser = async (id) => (await api.patch(`/admin/users/${id}/unsuspend`)).data;
+export const getAdminStations = async () => (await api.get('/admin/stations')).data;
+export const getAdminBicycles = async () => (await api.get('/admin/bicycles')).data;
+export const getAdminRides = async () => (await api.get('/admin/rides')).data;
+export const getAdminIssues = async () => (await api.get('/admin/issues')).data;
+export const updateAdminIssue = async (id, status) => (await api.patch(`/admin/issues/${id}`, { status })).data;
+export const getAdminTransactions = async () => (await api.get('/admin/transactions')).data;
+
 export default api;
