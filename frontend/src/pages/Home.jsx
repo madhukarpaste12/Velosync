@@ -63,7 +63,9 @@ export default function Home() {
   const [locationAccuracy, setLocationAccuracy] = useState(null);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [trackingRoute, setTrackingRoute] = useState([]);
-  
+
+  const visibleStations = useMemo(() => stations, [stations]);
+
   // Fetch user profile on mount
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -97,7 +99,6 @@ export default function Home() {
     void fetchStations();
   }, [city]);
 
-  const visibleStations = useMemo(() => stations, [stations]);
   const fare = ride ? 10 + seconds * 0.45 : 0;
   const duration = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
   
@@ -197,7 +198,6 @@ export default function Home() {
   
   return <main className="velo-app"><MapContainer ref={mapRef} center={CITIES[city]} zoom={13} className="velo-map" zoomControl={false}><MapReady center={CITIES[city]} /><TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />{userLocation && <><Circle center={userLocation} radius={locationAccuracy || 30} pathOptions={{ color: '#2563eb', fillColor: '#2563eb', fillOpacity: 0.12, weight: 1 }} /><Marker position={userLocation} icon={userLocationIcon}><Popup>Your current location</Popup></Marker></>}{trackingRoute.length > 0 && <Polyline positions={trackingRoute} color="#007bff" weight={3} opacity={0.8} />}{visibleStations.map((station) => { const bounty = station.available / station.capacity < .2; return <Marker key={station.id} position={[station.lat, station.lng]} icon={stationIcon(station.available, bounty)}><Popup><div className="station-popup"><span>{station.id}</span><h3>{station.name}</h3><p><b>{station.available}</b> cycles · {station.capacity} docks</p>{bounty && <div className="bounty-tag">⚡ ₹5 Rebalancing Bounty</div>}<button className="button button-primary" onClick={() => navigate(`/station/${station.id}`)}>View station & rent</button></div></Popup></Marker>; })}<MapControls onMyLocation={handleMyLocation} isGettingLocation={isGettingLocation} hasLocation={Boolean(userLocation)} /></MapContainer>
     <header className="velo-nav glass-panel"><div className="nav-left"><button className="icon-button" onClick={() => setPanel('profile')} aria-label="Open profile">👤</button><label className="city-select">📍<select value={city} onChange={(event) => setCity(event.target.value)}>{Object.keys(CITIES).map((name) => <option key={name}>{name}</option>)}</select></label></div><div className="nav-right"><div className="wallet-pill"><span>Wallet</span><b>{rupees(wallet)}</b><button onClick={() => setPanel('topup')}>+ Top up</button></div><button className="icon-button" onClick={() => setPanel('report')} aria-label="Report an issue">⚠️</button></div></header>
-    <button className={`network-chip glass-panel ${online ? 'online' : 'offline'}`} onClick={() => setPanel('simulator')}>{online ? '● 4G / LTE Online' : '● Offline dead-zone'}</button>
     <section className={`ride-drawer ${ride ? 'is-riding' : ''}`}>{ride ? <><div className="ride-status"><i />Ride in progress</div><div className="ride-metrics"><div><span>Bicycle</span><b>{ride.bikeId}</b></div><div><span>Duration</span><b>{duration}</b></div><div><span>Live fare</span><b>{rupees(fare)}</b></div></div><button className="button button-danger" onClick={endRide}>🔒 End ride & lock</button></> : <><div><p className="drawer-kicker">Ready when you are</p><h1>Find your next ride</h1><p>Tap a station on the map or scan a cycle code.</p></div><button className="button button-primary scan-button" onClick={() => startRide(visibleStations.find((station) => station.available > 0))}>📷 Scan QR to rent</button></>}</section>
     {panel === 'profile' && <div className="modal-layer"><aside className="profile-drawer glass-panel"><button className="close-button" onClick={() => setPanel('')}>×</button><div className="profile-hero"><div className="avatar">🚴</div><div><p>Good to see you</p><h2>{userProfile?.name || 'User'}</h2><em>✓ KYC verified</em></div></div><div className="identity-grid"><div><span>Email</span><b>{userProfile?.email || 'N/A'}</b></div><div><span>Phone</span><b>{userProfile?.phone || 'Not provided'}</b></div><div><span>Role</span><b>{userProfile?.role || 'Commuter'}</b></div><div><span>Wallet</span><b>{rupees(wallet)}</b></div></div><div className="stat-grid"><div><b>{history.length}</b><span>Total trips</span></div><div><b>18.6 kg</b><span>CO₂ saved</span></div></div><div className="ledger-head"><h3>Ride history</h3><span>Recent trips</span></div><div className="ride-ledger">{history.length === 0 ? <p style={{textAlign: 'center', color: '#666'}}>No trips yet</p> : history.map((item, index) => <article key={`${item.bike}-${index}`}><div><b>{item.bike}</b><span>{item.date} · {item.duration}</span></div><div><strong>{rupees(item.fare)}</strong><em className={item.status === 'Bounty Applied' ? 'bounty-status' : ''}>{item.status}</em></div></article>)}</div><div className="profile-actions"><button className="button button-primary" onClick={() => setPanel('topup')}>Top-up wallet</button><button className="button button-secondary" onClick={() => setToast('Referral code VS-' + (userProfile?.id?.slice(0, 5) || 'USER') + ' copied!')}>Refer & earn</button><button className="logout-button" onClick={handleLogout} disabled={isLoggingOut}>{isLoggingOut ? 'Logging out...' : 'Logout'}</button></div></aside></div>}
     {panel === 'simulator' && <div className="modal-layer modal-bottom"><section className="simulator-panel"><button className="close-button" onClick={() => setPanel('')}>×</button><p className="drawer-kicker">Developer tools</p><h2>IoT hardware simulator</h2><p>Simulate connectivity changes and verify background ride sync.</p><div className="sim-toggle"><button className={online ? 'selected' : ''} onClick={() => setOnline(true)}>🟢 4G/LTE online</button><button className={!online ? 'selected offline-button' : ''} onClick={() => setOnline(false)}>🔴 Offline dead-zone</button></div><div className="sim-info"><span>BLE fallback</span><b>{online ? 'Standby' : 'Ready to lock locally'}</b></div></section></div>}
@@ -293,6 +293,14 @@ export default function Home() {
       .location-dot {
         font-size: 16px;
         display: block;
+      }
+
+      .glass-panel {
+        background: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        border: 1px solid rgba(148, 163, 184, 0.28);
+        box-shadow: 0 8px 26px rgba(15, 23, 42, 0.14);
       }
 
       @media (max-width: 699px) {

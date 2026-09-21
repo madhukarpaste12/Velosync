@@ -1,0 +1,14 @@
+{
+  "name": "velosync-simulator",
+  "version": "1.0.0",
+  "private": true,
+  "main": "simulator.js",
+  "scripts": {
+    "start": "node simulator.js",
+    "dev": "node simulator.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "axios": "^1.7.7"
+  }
+}

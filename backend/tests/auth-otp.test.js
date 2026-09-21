@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const { isValidOtp, generateOtp } = require('../src/utils/otpUtils');
 const { buildOtpEmail, getSmtpConfig } = require('../src/utils/emailService');
+const { createOperationalError } = require('../src/controllers/mobilityController');
 
 test('OTP generator returns a six-digit numeric code', () => {
   const otp = generateOtp();
@@ -45,4 +46,11 @@ test('SMTP config resolves Gmail-compatible env values and legacy fallback value
   } finally {
     process.env = original;
   }
+});
+
+test('ride-start validation errors keep their message and HTTP status', () => {
+  const err = createOperationalError('Insufficient funds. Minimum wallet balance is INR 50.', 402);
+  assert.equal(err.statusCode, 402);
+  assert.equal(err.isOperational, true);
+  assert.equal(err.message, 'Insufficient funds. Minimum wallet balance is INR 50.');
 });
