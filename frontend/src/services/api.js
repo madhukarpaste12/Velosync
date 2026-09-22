@@ -1,6 +1,22 @@
 import axios from 'axios';
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api', withCredentials: true });
+const runtimeEnv = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {};
+
+const api = axios.create({ baseURL: runtimeEnv.VITE_API_URL || 'http://localhost:5000/api', withCredentials: true });
+
+export const buildRideEndPayload = ({ tripId, bikeId, lat, lng, simulatedOffline = false }) => {
+  if (!tripId || !bikeId || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
+    throw new Error('tripId, bikeId, lat, and lng are required.');
+  }
+
+  return {
+    tripId,
+    bikeId,
+    lat: Number(lat),
+    lng: Number(lng),
+    simulatedOffline
+  };
+};
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
@@ -49,25 +65,22 @@ export const getUserProfile = async () => {
 
 // Ride Management API
 export const startRide = async (bikeId) => {
-  try {
-    const res = await api.post('/mobility/rides/start', { bikeId });
-    return res.data;
-  } catch (error) {
-    throw error;
-  }
+  const res = await api.post('/mobility/rides/start', { bikeId });
+  return res.data;
 };
 
 // Service Worker / Offline Logic
 export const endRideWithOfflineFallback = async (payload) => {
-  if (!navigator.onLine || payload.simulatedOffline) {
-    // Cache payload locally if in cellular dead-zone
+  const normalized = buildRideEndPayload(payload);
+
+  if (!navigator.onLine || normalized.simulatedOffline) {
     const queue = JSON.parse(localStorage.getItem('offlineQueue') || '[]');
-    queue.push(payload);
+    queue.push(normalized);
     localStorage.setItem('offlineQueue', JSON.stringify(queue));
     return { offline: true, message: 'Network offline. Lock triggered via BLE. Ride data cached locally and will sync when 4G returns.' };
   }
-  
-  const res = await api.post('/mobility/rides/end', payload);
+
+  const res = await api.post('/mobility/rides/end', normalized);
   return res.data;
 };
 

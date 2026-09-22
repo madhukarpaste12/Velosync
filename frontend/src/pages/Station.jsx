@@ -2,11 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { getStation, startRide } from '../services/api';
 import { MapContainer, Marker, TileLayer, useMap } from 'react-leaflet';
-import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-
-const rupees = (value) => `₹${Number(value).toFixed(2)}`;
-const CITIES = { Mumbai: [19.076, 72.8777], Pune: [18.5204, 73.8567], Bengaluru: [12.9716, 77.5946] };
 
 function FlyTo({ center }) {
   const map = useMap();
@@ -97,8 +93,6 @@ export default function Station() {
   }
 
   const center = [station.lat, station.lng];
-  const cityCenter = Object.values(CITIES).find(() => true) || [19.076, 72.8777];
-
   return (
     <main className="station-page">
       <header className="station-header">

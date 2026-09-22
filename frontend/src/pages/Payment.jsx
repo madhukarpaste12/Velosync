@@ -1,7 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { createWalletTopUp, getWalletGatewayStatus, getUserProfile } from '../services/api';
-import { useAuth } from '../context/useAuth';
 
 const methods = ['UPI', 'Credit/Debit Card', 'Net Banking', 'Demo Wallet'];
 const toCurrency = (value) => `₹${Number(value).toFixed(2)}`;
@@ -9,7 +8,6 @@ const toCurrency = (value) => `₹${Number(value).toFixed(2)}`;
 export default function Payment() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuth();
   const initialAmount = useMemo(() => {
     const value = Number(location.state?.amount ?? '');
     return Number.isFinite(value) && value > 0 ? value : 0;
@@ -39,12 +37,6 @@ export default function Payment() {
 
     void loadGatewayStatus();
   }, []);
-
-  useEffect(() => {
-    if (!initialAmount) {
-      setError('Enter a valid amount greater than ₹0 to continue.');
-    }
-  }, [initialAmount]);
 
   const validateForm = () => {
     const numericAmount = Number(amount || initialAmount);
