@@ -44,7 +44,7 @@ const SignIn = () => {
       const origin = location.state?.from?.pathname || (sessionUser.role === 'admin' ? '/admin' : '/home');
       navigate(origin, { replace: true });
     } catch (err) {
-      setServerError(err.message);
+      setServerError(err?.userFriendly || 'Incorrect email or password. Please try again.');
     } finally {
       setIsProcessing(false);
     }

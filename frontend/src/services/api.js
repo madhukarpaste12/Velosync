@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getUserFriendlyError } from '../utils/errorUtils';
 
 const runtimeEnv = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {};
 
@@ -26,8 +27,20 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use((response) => response, (error) => {
   const status = error.response?.status;
-  const isAuthRequest = error.config?.url?.includes('/auth/login') || error.config?.url?.includes('/auth/signup') || error.config?.url?.includes('/auth/verify-otp');
-  if ((status === 401 || status === 403) && !isAuthRequest) window.dispatchEvent(new Event('velosync:auth-invalid'));
+  const requestUrl = error.config?.url || '';
+  const isPublicAuthRequest = /\/auth\/login|\/auth\/signup|\/auth\/verify-otp|\/auth\/forgot-password|\/auth\/reset-password/.test(requestUrl);
+  const errorText = `${error.response?.data?.message || ''} ${error.message || ''}`.toLowerCase();
+  const isAccountStatusError = /suspended|temporarily suspended|verify your account|not verified|email.*not.*verified/.test(errorText);
+
+  if ((status === 401 || status === 403) && !isPublicAuthRequest && !isAccountStatusError) {
+    window.dispatchEvent(new Event('velosync:auth-invalid'));
+  }
+
+  const friendlyMessage = getUserFriendlyError(error);
+  if (friendlyMessage && error) {
+    error.userFriendly = friendlyMessage;
+  }
+
   return Promise.reject(error);
 });
 
@@ -48,6 +61,16 @@ export const getStation = async (stationId) => {
     return res.data.station || null;
   } catch (error) {
     console.error('Failed to fetch station:', error);
+    return null;
+  }
+};
+
+export const getBike = async (bikeId) => {
+  try {
+    const res = await api.get(`/mobility/bikes/${bikeId}`);
+    return res.data.bicycle || null;
+  } catch (error) {
+    console.error('Failed to fetch bike:', error);
     return null;
   }
 };

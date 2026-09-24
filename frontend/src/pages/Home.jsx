@@ -12,6 +12,7 @@ import {
 } from '../services/api';
 import { startGpsTracking } from '../services/gpsTracker';
 import { easeOutCubic, movePositionByMeters } from '../utils/geoUtils.js';
+import QrCodeScanner from '../components/QrCodeScanner';
 import 'leaflet/dist/leaflet.css';
 
 const CITIES = { Mumbai: [19.076, 72.8777], Pune: [18.5204, 73.8567], Bengaluru: [12.9716, 77.5946] };
@@ -149,6 +150,7 @@ export default function Home() {
   const [locationAccuracy, setLocationAccuracy] = useState(null);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [trackingRoute, setTrackingRoute] = useState([]);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
 
   const visibleStations = useMemo(() => stations, [stations]);
 
@@ -328,15 +330,28 @@ export default function Home() {
   useEffect(() => { const onOnline = () => { setOnline(true); void syncOfflineRides(); setToast('Back online — cached updates are syncing.'); }; const onOffline = () => setOnline(false); window.addEventListener('online', onOnline); window.addEventListener('offline', onOffline); return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); }; }, []);
   useEffect(() => { if (!toast) return undefined; const timer = setTimeout(() => setToast(''), 3500); return () => clearTimeout(timer); }, [toast]);
   
-  const startRide = useCallback((station) => {
-    if (!station || station.available < 1) {
-      setToast('No cycles are currently available at this station.');
+  const startRide = useCallback(() => {
+    setIsScannerOpen(true);
+  }, []);
+
+  const handleValidQrScan = useCallback((bicycle) => {
+    if (!bicycle) {
+      setToast('Invalid VeloSync QR Code');
+      setIsScannerOpen(false);
       return;
     }
 
-    setToast('Select a bicycle from this station to begin the ride.');
-    navigate(`/station/${station.id}`);
-  }, [navigate]);
+    const stationId = bicycle.station_id || visibleStations.find((station) => station.available > 0)?.id;
+    setIsScannerOpen(false);
+
+    if (!stationId) {
+      setToast('No station is currently available for this bicycle.');
+      return;
+    }
+
+    setToast(`${bicycle.id} scanned successfully.`);
+    navigate(`/station/${stationId}`);
+  }, [navigate, visibleStations]);
 
   const endRide = async () => {
     if (!ride) return;
@@ -387,7 +402,8 @@ export default function Home() {
 {ride && bicyclePosition && <Marker position={[bicyclePosition.latitude, bicyclePosition.longitude]} icon={bicycleLocationIcon}><Popup><div className="station-popup"><span>Ride</span><h3>Bicycle {ride.bikeId || 'in motion'}</h3><p>{duration}</p></div></Popup></Marker>}
 <MapControls onMyLocation={handleMyLocation} isGettingLocation={isGettingLocation} hasLocation={Boolean(userLocation)} /></MapContainer>
     <header className="velo-nav glass-panel"><div className="nav-left"><button className="icon-button" onClick={() => setPanel('profile')} aria-label="Open profile">👤</button><label className="city-select">📍<select value={city} onChange={(event) => setCity(event.target.value)}>{Object.keys(CITIES).map((name) => <option key={name}>{name}</option>)}</select></label></div><div className="nav-right"><div className="wallet-pill"><span>Wallet</span><b>{rupees(wallet)}</b><button onClick={() => setPanel('topup')}>+ Top up</button></div><button className="icon-button" onClick={() => setPanel('report')} aria-label="Report an issue">⚠️</button></div></header>
-    <section className={`ride-drawer ${hasActiveRide ? 'is-riding' : ''}`}>{hasActiveRide ? <><div className="ride-status"><i />Ride in progress</div><div className="ride-metrics"><div><span>Bicycle</span><b>{ride.bikeId}</b></div><div><span>Duration</span><b>{duration}</b></div><div><span>Live fare</span><b>{rupees(fare)}</b></div></div><button id="ride-end-button" className="button button-danger" onClick={endRide}>🔒 End ride & lock</button></> : <><div><p className="drawer-kicker">Ready when you are</p><h1>Find your next ride</h1><p>Tap a station on the map or scan a cycle code.</p></div><button id="ride-start-button" className="button button-primary scan-button" onClick={() => startRide(visibleStations.find((station) => station.available > 0))}>📷 Scan QR to rent</button></>}</section>
+    <section className={`ride-drawer ${hasActiveRide ? 'is-riding' : ''}`}>{hasActiveRide ? <><div className="ride-status"><i />Ride in progress</div><div className="ride-metrics"><div><span>Bicycle</span><b>{ride.bikeId}</b></div><div><span>Duration</span><b>{duration}</b></div><div><span>Live fare</span><b>{rupees(fare)}</b></div></div><button id="ride-end-button" className="button button-danger" onClick={endRide}>🔒 End ride & lock</button></> : <><div><p className="drawer-kicker">Ready when you are</p><h1>Find your next ride</h1><p>Tap a station on the map or scan a cycle code.</p></div><button id="ride-start-button" className="button button-primary scan-button" onClick={startRide}>📷 Scan QR to rent</button></>}</section>
+    {isScannerOpen && <QrCodeScanner onClose={() => setIsScannerOpen(false)} onValidScan={handleValidQrScan} setToast={setToast} />}
     {panel === 'profile' && <div className="modal-layer"><aside className="profile-drawer glass-panel"><button className="close-button" onClick={() => setPanel('')}>×</button><div className="profile-hero"><div className="avatar">🚴</div><div><p>Good to see you</p><h2>{userProfile?.name || 'User'}</h2><em>✓ KYC verified</em></div></div><div className="identity-grid"><div><span>Email</span><b>{userProfile?.email || 'N/A'}</b></div><div><span>Phone</span><b>{userProfile?.phone || 'Not provided'}</b></div><div><span>Role</span><b>{userProfile?.role || 'Commuter'}</b></div><div><span>Wallet</span><b>{rupees(wallet)}</b></div></div><div className="stat-grid"><div><b>{history.length}</b><span>Total trips</span></div><div><b>18.6 kg</b><span>CO₂ saved</span></div></div><div className="ledger-head"><h3>Ride history</h3><span>Recent trips</span></div><div className="ride-ledger">{history.length === 0 ? <p style={{textAlign: 'center', color: '#666'}}>No trips yet</p> : history.map((item, index) => <article key={`${item.bike}-${index}`}><div><b>{item.bike}</b><span>{item.date} · {item.duration}</span></div><div><strong>{rupees(item.fare)}</strong><em className={item.status === 'Bounty Applied' ? 'bounty-status' : ''}>{item.status}</em></div></article>)}</div><div className="profile-actions"><button className="button button-primary" onClick={() => setPanel('topup')}>Top-up wallet</button><button className="button button-secondary" onClick={() => setToast('Referral code VS-' + (userProfile?.id?.slice(0, 5) || 'USER') + ' copied!')}>Refer & earn</button><button className="logout-button" onClick={handleLogout} disabled={isLoggingOut}>{isLoggingOut ? 'Logging out...' : 'Logout'}</button></div></aside></div>}
     {panel === 'simulator' && <div className="modal-layer modal-bottom"><section className="simulator-panel"><button className="close-button" onClick={() => setPanel('')}>×</button><p className="drawer-kicker">Developer tools</p><h2>IoT hardware simulator</h2><p>Simulate connectivity changes and verify background ride sync.</p><div className="sim-toggle"><button className={online ? 'selected' : ''} onClick={() => setOnline(true)}>🟢 4G/LTE online</button><button className={!online ? 'selected offline-button' : ''} onClick={() => setOnline(false)}>🔴 Offline dead-zone</button></div><div className="sim-info"><span>BLE fallback</span><b>{online ? 'Standby' : 'Ready to lock locally'}</b></div></section></div>}
     {panel === 'topup' && <div className="modal-layer"><section className="dialog-card"><button className="close-button" onClick={() => setPanel('')}>×</button><p className="drawer-kicker">Wallet</p><h2>Top-up balance</h2><p>Choose an amount and continue to payment method selection.</p><div className="amount-pills">{[50, 100, 200, 500].map((amount) => <button key={amount} onClick={() => topUp(amount)}>+{rupees(amount)}</button>)}</div><input className="amount-input" value={customAmount} onChange={(event) => setCustomAmount(event.target.value.replace(/[^0-9.]/g, ''))} placeholder="Custom amount" inputMode="decimal" /><button className="button button-primary full-width" onClick={() => { const value = Number(customAmount); if (!Number.isFinite(value) || value <= 0) { setToast('Enter an amount greater than ₹0 before continuing.'); return; } setPanel(''); navigate('/payment', { state: { amount: value } }); }}>Continue to payment</button></section></div>}

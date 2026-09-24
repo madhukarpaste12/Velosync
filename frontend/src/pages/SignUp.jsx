@@ -61,7 +61,7 @@ export default function SignUp() {
         }
       }
     } catch (error) {
-      setStatus(error.response?.data?.message || 'We could not complete that request. Please try again.');
+      setStatus(error?.userFriendly || 'We could not complete that request. Please try again.');
     } finally { setIsProcessing(false); }
   };
 

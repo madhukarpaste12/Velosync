@@ -33,7 +33,7 @@ export default function Station() {
         setStation(data);
       } catch (err) {
         console.error('Failed to fetch station:', err);
-        setError('Failed to load station details');
+        setError(err?.userFriendly || "We couldn't find this station. Please try again.");
       } finally {
         setIsLoading(false);
       }
@@ -59,7 +59,7 @@ export default function Station() {
         setToast(result.message || 'Failed to rent bike');
       }
     } catch (err) {
-      setToast(err.response?.data?.message || 'Failed to rent bike. Please try again.');
+      setToast(err?.userFriendly || "We couldn't start your ride. Please try again.");
     } finally {
       setIsRenting(false);
     }

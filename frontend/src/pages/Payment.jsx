@@ -123,7 +123,7 @@ export default function Payment() {
     } catch (submitError) {
       setIsSubmitting(false);
       setState('failure');
-      setError(submitError.message || 'Payment could not be completed.');
+      setError(submitError?.userFriendly || 'Payment could not be completed. Please try again.');
     }
   };
 

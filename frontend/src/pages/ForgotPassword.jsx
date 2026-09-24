@@ -18,16 +18,23 @@ export default function ForgotPassword() {
   const validEmail = () => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
   const requestOtp = async () => {
-    if (!validEmail()) return setError(email ? 'Please enter a valid email address.' : 'This field is required.');
+    if (!email.trim()) return setError('Please enter your email address.');
+    if (!validEmail()) return setError('Please enter a valid email address.');
+
     setLoading(true); setError('');
     try {
-      await authService.requestResetOtp(email);
+      const response = await authService.requestResetOtp(email);
+      if (response?.success === false) {
+        setError(response.message || 'No account found with this email address.');
+        return;
+      }
+
       setOtpRequested(true);
       setSeconds(300);
       setCooldown(30);
-      setStatus('If an account exists for this email, a verification code has been sent.');
+      setStatus('A verification code has been sent to your email.');
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'Unable to generate a verification code.');
+      setError(requestError?.userFriendly || 'No account found with this email address.');
     } finally { setLoading(false); }
   };
 
@@ -39,7 +46,7 @@ export default function ForgotPassword() {
       const response = await authService.verifyResetOtp(email, otp);
       navigate('/reset-password', { state: { email, resetToken: response.resetToken } });
     } catch (verifyError) {
-      setError(verifyError.response?.data?.message || 'Incorrect or expired OTP.');
+      setError(verifyError?.userFriendly || 'We could not verify the OTP. Please try again.');
     } finally { setLoading(false); }
   };
 

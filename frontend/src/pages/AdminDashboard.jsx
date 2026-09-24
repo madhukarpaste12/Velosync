@@ -30,7 +30,7 @@ export default function AdminDashboard() {
         transactions: transactions.transactions || []
       });
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'Unable to load admin data.');
+      setError(requestError?.userFriendly || 'VeloSync is temporarily unavailable. Please try again later.');
     } finally {
       setIsLoading(false);
     }
@@ -48,7 +48,7 @@ export default function AdminDashboard() {
       setNotice(targetUser.is_suspended ? 'User unsuspended.' : `User suspended for ${days} days.`);
       await loadDashboard();
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'Unable to update user suspension.');
+      setError(requestError?.userFriendly || 'We could not update the user status. Please try again.');
     }
   };
 
@@ -58,7 +58,7 @@ export default function AdminDashboard() {
       setNotice('Issue status updated.');
       await loadDashboard();
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'Unable to update issue.');
+      setError(requestError?.userFriendly || 'We could not update the issue status. Please try again.');
     }
   };
 

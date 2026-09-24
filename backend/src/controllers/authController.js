@@ -55,7 +55,7 @@ exports.signup = async (req, res, next) => {
       return res.status(422).json({ success: false, message: 'Name, email, and password are required.' });
     }
     if ((await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail])).rows[0]) {
-      throw operationalError('Email already registered.', 409);
+      throw operationalError('This user already exists. Please sign in instead.', 409);
     }
     await issueOtp(normalizedEmail, OTP_PURPOSES.SIGNUP_VERIFICATION);
     res.json({ success: true, message: 'A verification code has been sent to your email.' });
@@ -84,7 +84,7 @@ exports.verifyOtp = async (req, res, next) => {
     }
 
     const existingUser = await client.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
-    if (existingUser.rows[0]) throw operationalError('Email already registered.', 409);
+    if (existingUser.rows[0]) throw operationalError('This user already exists. Please sign in instead.', 409);
 
     const user = await client.query(
       "INSERT INTO users (name, email, password_hash, role, is_email_verified, wallet_balance) VALUES ($1, $2, $3, 'user', TRUE, 0) RETURNING id, name, email, role, wallet_balance",
@@ -124,11 +124,18 @@ exports.requestResetOtp = async (req, res, next) => {
   try {
     const { email } = req.body;
     const normalizedEmail = normalizeEmail(email);
-    const user = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
-    if (user.rows[0]) {
-      await issueOtp(normalizedEmail, OTP_PURPOSES.FORGOT_PASSWORD);
+
+    if (!normalizedEmail) {
+      return res.status(422).json({ success: false, message: 'Please enter your email address.' });
     }
-    res.json({ success: true, message: 'If an account exists for this email, a verification code has been sent.' });
+
+    const user = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
+    if (!user.rows[0]) {
+      return res.status(404).json({ success: false, message: 'No account found with this email address.' });
+    }
+
+    await issueOtp(normalizedEmail, OTP_PURPOSES.FORGOT_PASSWORD);
+    res.json({ success: true, message: 'A verification code has been sent to your email.' });
   } catch (error) { next(error); }
 };
 
@@ -172,10 +179,22 @@ exports.resetPassword = async (req, res, next) => {
 
 exports.login = async (req, res, next) => {
   try {
-    const result = await pool.query('SELECT id, name, email, password_hash, role, is_suspended, suspended_until, wallet_balance FROM users WHERE email = $1', [req.body.email]);
+    const normalizedEmail = normalizeEmail(req.body.email);
+    const result = await pool.query('SELECT id, name, email, password_hash, role, is_suspended, suspended_until, is_email_verified, wallet_balance FROM users WHERE email = $1', [normalizedEmail]);
     const user = result.rows[0];
-    if (!user || !(await bcrypt.compare(req.body.password, user.password_hash))) return res.status(401).json({ success: false, message: 'Invalid email or password' });
-    if (user.is_suspended && (!user.suspended_until || new Date(user.suspended_until) > new Date())) return res.status(403).json({ success: false, message: 'Your account is temporarily suspended.' });
+
+    if (!user || !(await bcrypt.compare(String(req.body.password || ''), user.password_hash))) {
+      return res.status(401).json({ success: false, message: 'Incorrect email or password. Please try again.' });
+    }
+
+    if (user.is_suspended && (!user.suspended_until || new Date(user.suspended_until) > new Date())) {
+      return res.status(403).json({ success: false, message: 'Your account has been suspended. Please contact the administrator for assistance.' });
+    }
+
+    if (!user.is_email_verified) {
+      return res.status(403).json({ success: false, message: 'Please verify your account before signing in.' });
+    }
+
     const accessToken = generateAccessToken(user); const refreshToken = generateRefreshToken(user);
     await pool.query("INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, CURRENT_TIMESTAMP + INTERVAL '7 days')", [user.id, refreshToken]);
     setRefreshCookie(res, refreshToken);

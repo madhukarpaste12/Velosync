@@ -3,6 +3,17 @@ const { validateTelemetryPayload } = require('../utils/simulatorUtils');
 
 const createOperationalError = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode, isOperational: true });
 
+const ensureNoActiveRideForUser = async (client, userId) => {
+  const activeTrip = await client.query(
+    "SELECT id FROM trips WHERE user_id = $1 AND status = 'IN_PROGRESS' LIMIT 1 FOR UPDATE",
+    [userId]
+  );
+
+  if (activeTrip.rows[0]) {
+    throw createOperationalError('You already have an active ride.', 409);
+  }
+};
+
 const getStations = async (req, res, next) => {
   try {
     const { city } = req.query;
@@ -148,11 +159,27 @@ const startRide = async (req, res, next) => {
     await client.query('BEGIN');
     const user = await client.query('SELECT wallet_balance FROM users WHERE id = $1 FOR UPDATE', [req.user.id]);
     if (!user.rows[0]) return res.status(404).json({ success: false, message: 'User not found.' });
-    if (Number(user.rows[0].wallet_balance) < 50) throw createOperationalError('Insufficient funds. Minimum wallet balance is INR 50.', 402);
-    const bike = await client.query(`SELECT id FROM bicycles WHERE id = $1 AND is_locked = TRUE AND health = 'Good' FOR UPDATE SKIP LOCKED`, [bikeId]);
-    if (!bike.rows[0]) throw createOperationalError('Bike not available or already rented.', 409);
-    const activeTrip = await client.query("SELECT 1 FROM trips WHERE user_id = $1 AND status = 'IN_PROGRESS'", [req.user.id]);
-    if (activeTrip.rows[0]) throw createOperationalError('You already have an active ride.', 409);
+
+    const activeTrip = await client.query(
+      "SELECT id FROM trips WHERE user_id = $1 AND status = 'IN_PROGRESS' LIMIT 1 FOR UPDATE",
+      [req.user.id]
+    );
+    if (activeTrip.rows[0]) {
+      throw createOperationalError('You already have an active ride. Please complete your current ride before renting another bicycle.', 409);
+    }
+
+    if (Number(user.rows[0].wallet_balance) < 50) {
+      throw createOperationalError('Insufficient wallet balance. Please add money to your wallet before starting the ride.', 402);
+    }
+
+    const bike = await client.query(
+      `SELECT id FROM bicycles WHERE id = $1 AND is_locked = TRUE AND health = 'Good' FOR UPDATE SKIP LOCKED`,
+      [bikeId]
+    );
+    if (!bike.rows[0]) {
+      throw createOperationalError('This bicycle is currently unavailable. Please choose another bicycle.', 409);
+    }
+
     const trip = await client.query('INSERT INTO trips (user_id, bicycle_id) VALUES ($1, $2) RETURNING id, start_time', [req.user.id, bikeId]);
     await client.query('UPDATE bicycles SET is_locked = FALSE, station_id = NULL WHERE id = $1', [bikeId]);
     await client.query('COMMIT');
