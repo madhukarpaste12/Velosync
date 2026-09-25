@@ -20,8 +20,8 @@ const Start = () => {
           offline capabilities, and a cleaner city.
         </p>
         <div className="action-buttons">
-          <Link to="/signup" className="btn btn-primary bg-eco-green">Get Started</Link>
-          <Link to="/signin" className="btn btn-secondary">Sign In</Link>
+          <Link to="/signin" className="btn btn-primary bg-eco-green">Get Started</Link>
+          <Link to="/signup" className="btn btn-secondary">Sign Up</Link>
         </div>
       </div>
     </div>
